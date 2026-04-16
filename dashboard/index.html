@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Decova — Dashboard</title>
+    <link rel="stylesheet" href="dashboard.css" />
+  </head>
+  <body>
+    <div class="app">
+
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <span class="logo-icon">✦</span>
+          <span class="logo-text">Decova</span>
+        </div>
+
+        <nav class="collections-nav">
+          <div class="nav-label">Collections</div>
+          <div class="collections-list" id="collections-list">
+            <!-- Rendered by JS -->
+          </div>
+          <button class="new-collection-btn" id="new-collection-btn">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+            New Collection
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="total-count" id="sidebar-total">0 clips saved</div>
+        </div>
+      </aside>
+
+      <!-- Main -->
+      <main class="main">
+        <!-- Topbar -->
+        <div class="topbar">
+          <div class="topbar-left">
+            <h1 class="page-title" id="page-title">All Clips</h1>
+            <span class="page-count" id="page-count">0</span>
+          </div>
+          <div class="topbar-right">
+            <div class="search-wrap">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"/>
+                <path d="m21 21-4.35-4.35"/>
+              </svg>
+              <input class="search-input" id="search-input" placeholder="Search clips…" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Grid -->
+        <div class="grid" id="grid"></div>
+
+        <!-- Empty state -->
+        <div class="empty-state" id="empty-state">
+          <div class="empty-icon">✦</div>
+          <div class="empty-title">No clips here yet</div>
+          <div class="empty-sub">Capture elements from any webpage to get started</div>
+        </div>
+      </main>
+
+    </div>
+
+    <!-- Clip detail modal -->
+    <div class="modal-overlay" id="modal-overlay">
+      <div class="modal" id="modal"></div>
+    </div>
+
+    <script src="dashboard.js"></script>
+  </body>
+</html>

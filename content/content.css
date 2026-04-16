@@ -1,0 +1,319 @@
+/* ── Highlight ─────────────────────────────────────────────────────────────── */
+
+.decova-active * {
+  cursor: crosshair !important;
+}
+
+.decova-highlight {
+  outline: 2px solid #7c6ff7 !important;
+  outline-offset: 2px !important;
+  background-color: rgba(124, 111, 247, 0.06) !important;
+  transition: outline 0.1s, background-color 0.1s;
+}
+
+/* ── Tooltip ───────────────────────────────────────────────────────────────── */
+
+.decova-tooltip {
+  position: fixed;
+  z-index: 2147483646;
+  background: #ffffff;
+  color: #111111;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 6px;
+  pointer-events: none;
+  border: 1px solid #e0e0e0;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  white-space: nowrap;
+}
+
+/* ── Preview Panel ─────────────────────────────────────────────────────────── */
+
+.decova-panel {
+  position: fixed;
+  top: 50%;
+  right: 20px;
+  transform: translateY(-50%) translateX(20px);
+  opacity: 0;
+  z-index: 2147483647;
+  width: 300px;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: #ffffff;
+  border: 1px solid #e8e8e8;
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.12);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  color: #111111;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.decova-panel.visible {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
+/* Scrollbar */
+.decova-panel::-webkit-scrollbar { width: 4px; }
+.decova-panel::-webkit-scrollbar-track { background: transparent; }
+.decova-panel::-webkit-scrollbar-thumb { background: #ddd; border-radius: 4px; }
+
+/* Header */
+.cs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  position: sticky;
+  top: 0;
+  background: #ffffff;
+  z-index: 1;
+}
+
+.cs-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #111111;
+  letter-spacing: -0.1px;
+}
+
+.cs-close {
+  background: none;
+  border: none;
+  color: #bbb;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+  line-height: 1;
+}
+
+.cs-close:hover {
+  color: #111111;
+  background: #f5f5f5;
+}
+
+/* Screenshot preview */
+.cs-screenshot {
+  border-bottom: 1px solid #f0f0f0;
+  background: #f8f8f8;
+  overflow: hidden;
+}
+
+.cs-screenshot-img {
+  width: 100%;
+  height: auto;
+  max-height: 160px;
+  object-fit: cover;
+  object-position: top center;
+  display: block;
+}
+
+/* Body */
+.cs-body {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Section */
+.cs-section {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.cs-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: #aaa;
+  margin-bottom: 2px;
+}
+
+/* Row */
+.cs-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.cs-key {
+  color: #999;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.cs-val {
+  color: #333;
+  font-size: 12px;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+
+.cs-color-val {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cs-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid #e0e0e0;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.cs-truncate {
+  max-width: 140px;
+}
+
+/* Export buttons row */
+.cs-export-row {
+  display: flex;
+  gap: 6px;
+}
+
+.cs-copy-css,
+.cs-copy-tw {
+  flex: 1;
+  padding: 8px;
+  background: #f5f5f5;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  color: #666;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  text-align: center;
+  font-family: inherit;
+}
+
+.cs-copy-css:hover,
+.cs-copy-tw:hover {
+  background: #eeeeee;
+  color: #111111;
+}
+
+.cs-copy-tw {
+  background: #f0effe;
+  border-color: #ddd8fc;
+  color: #7c6ff7;
+}
+
+.cs-copy-tw:hover {
+  background: #e6e1fd;
+  color: #5b52e0;
+}
+
+/* Save section inputs */
+.cs-input {
+  width: 100%;
+  padding: 8px 10px;
+  background: #fafafa;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  color: #111111;
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.15s;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.cs-input:focus {
+  border-color: #7c6ff7;
+}
+
+.cs-input option {
+  background: #ffffff;
+  color: #111111;
+}
+
+/* Footer */
+.cs-footer {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid #f0f0f0;
+  position: sticky;
+  bottom: 0;
+  background: #ffffff;
+}
+
+.cs-cancel {
+  flex: 1;
+  padding: 9px;
+  background: none;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  color: #999;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.cs-cancel:hover {
+  border-color: #ccc;
+  color: #555;
+}
+
+.cs-save {
+  flex: 2;
+  padding: 9px;
+  background: #7c6ff7;
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.cs-save:hover {
+  background: #6a5de8;
+}
+
+/* ── Toast ─────────────────────────────────────────────────────────────────── */
+
+.decova-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(8px);
+  opacity: 0;
+  z-index: 2147483647;
+  background: #ffffff;
+  color: #111111;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 10px 18px;
+  border-radius: 99px;
+  border: 1px solid #e8e8e8;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+  pointer-events: none;
+  white-space: nowrap;
+  transition: opacity 0.25s, transform 0.25s;
+}
+
+.decova-toast.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}

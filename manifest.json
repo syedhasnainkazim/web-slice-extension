@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "ClipStyle",
+  "name": "Decova",
   "version": "1.0",
-  "description": "Capture and save UI elements from any webpage",
+  "description": "Decode and discover UI elements from any webpage",
 
   "icons": {
     "16": "assets/icons/icon16.png",
@@ -38,10 +38,4 @@
     "tabs"
   ],
 
-  "web_accessible_resources": [
-    {
-      "resources": ["preview/preview.html", "preview/preview.css", "preview/preview.js"],
-      "matches": ["<all_urls>"]
-    }
-  ]
 }
