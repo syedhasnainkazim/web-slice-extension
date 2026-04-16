@@ -7,6 +7,33 @@ const saveCount = document.getElementById("save-count");
 
 let isCapturing = false;
 
+// Ensure content script is injected on the active tab
+async function injectContentScript() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  // Skip chrome:// URLs
+  if (tab.url?.startsWith("chrome://")) {
+    console.warn("Cannot inject on chrome:// URLs");
+    return;
+  }
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ["content/content.js"],
+    });
+    await chrome.scripting.insertCSS({
+      target: { tabId: tab.id },
+      files: ["content/content.css"],
+    });
+  } catch (err) {
+    console.error("Failed to inject content script:", err);
+  }
+}
+
+// Inject on popup open
+injectContentScript();
+
 // Toggle capture mode
 captureBtn.addEventListener("click", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -18,7 +45,19 @@ captureBtn.addEventListener("click", async () => {
     captureLabel.textContent = "Stop Capturing";
     statusDot.className = "status-dot active";
     statusText.textContent = "Capture mode active";
-    chrome.tabs.sendMessage(tab.id, { action: "startCapture" }, () => void chrome.runtime.lastError);
+    chrome.tabs.sendMessage(tab.id, { action: "startCapture" }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error("Failed to start capture:", chrome.runtime.lastError);
+        statusText.textContent = "Error: Could not inject capture mode";
+        isCapturing = false;
+        captureBtn.classList.remove("active");
+        captureLabel.textContent = "Start Capturing";
+        statusDot.className = "status-dot idle";
+        return;
+      }
+      // Only close popup after successful message
+      setTimeout(() => window.close(), 300);
+    });
   } else {
     captureBtn.classList.remove("active");
     captureLabel.textContent = "Start Capturing";
@@ -26,9 +65,6 @@ captureBtn.addEventListener("click", async () => {
     statusText.textContent = "Ready to capture";
     chrome.tabs.sendMessage(tab.id, { action: "stopCapture" }, () => void chrome.runtime.lastError);
   }
-
-  // Close popup so user can interact with the page
-  if (isCapturing) window.close();
 });
 
 // Open dashboard
