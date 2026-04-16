@@ -11,20 +11,19 @@ let isCapturing = false;
 async function injectContentScript() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-  // Skip chrome:// URLs
-  if (tab.url?.startsWith("chrome://")) {
-    console.warn("Cannot inject on chrome:// URLs");
+  // Skip chrome:// and extension URLs
+  if (tab.url?.startsWith("chrome://") || tab.url?.startsWith("moz-")) {
     return;
   }
 
   try {
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      files: ["content/content.js"],
+      files: ["/content/content.js"],
     });
     await chrome.scripting.insertCSS({
       target: { tabId: tab.id },
-      files: ["content/content.css"],
+      files: ["/content/content.css"],
     });
   } catch (err) {
     console.error("Failed to inject content script:", err);
