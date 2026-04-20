@@ -11,6 +11,12 @@ let isCapturing = false;
 captureBtn.addEventListener("click", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
+  // Skip unsupported URLs
+  if (tab.url?.startsWith("chrome://") || tab.url?.startsWith("edge://")) {
+    statusText.textContent = "Cannot capture on browser pages";
+    return;
+  }
+
   isCapturing = !isCapturing;
 
   if (isCapturing) {
@@ -18,14 +24,20 @@ captureBtn.addEventListener("click", async () => {
     captureLabel.textContent = "Stop Capturing";
     statusDot.className = "status-dot active";
     statusText.textContent = "Capture mode active";
+
     chrome.tabs.sendMessage(tab.id, { action: "startCapture" }, (response) => {
       if (chrome.runtime.lastError) {
-        console.error("Message error:", chrome.runtime.lastError);
-        // Still close the popup - the content script should be injected via manifest
-        setTimeout(() => window.close(), 300);
-      } else {
-        setTimeout(() => window.close(), 300);
+        console.error("Error:", chrome.runtime.lastError);
+        isCapturing = false;
+        captureBtn.classList.remove("active");
+        captureLabel.textContent = "Start Capturing";
+        statusDot.className = "status-dot idle";
+        statusText.textContent = "Error: Page may not support capture";
+        return;
       }
+      console.log("Capture started successfully");
+      // Close popup after short delay to let capture mode initialize
+      setTimeout(() => window.close(), 200);
     });
   } else {
     captureBtn.classList.remove("active");

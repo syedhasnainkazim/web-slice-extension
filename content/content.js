@@ -16,14 +16,20 @@ chrome.runtime.onMessage.addListener((msg) => {
 // ─── Capture mode on/off ─────────────────────────────────────────────────────
 
 function startCapture() {
-  capturing = true;
-  console.log("[Decova] Capture mode started");
-  document.body.classList.add("decova-active");
-  createTooltip();
-  document.addEventListener("mouseover", onMouseOver);
-  document.addEventListener("mouseout", onMouseOut);
-  document.addEventListener("click", onClick, true);
-  document.addEventListener("keydown", onKeyDown);
+  try {
+    capturing = true;
+    console.log("[Decova] Capture mode started");
+    document.body.classList.add("decova-active");
+    createTooltip();
+    document.addEventListener("mouseover", onMouseOver);
+    document.addEventListener("mouseout", onMouseOut);
+    document.addEventListener("click", onClick, true);
+    document.addEventListener("keydown", onKeyDown);
+    console.log("[Decova] All event listeners attached");
+  } catch (err) {
+    console.error("[Decova] Error in startCapture:", err);
+    capturing = false;
+  }
 }
 
 function stopCapture() {
