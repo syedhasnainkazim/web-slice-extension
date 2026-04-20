@@ -3,9 +3,12 @@ let hoveredEl = null;
 let tooltip = null;
 let previewPanel = null;
 
+console.log("[Decova] Content script loaded");
+
 // ─── Message listener ────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg) => {
+  console.log("[Decova] Message received:", msg.action);
   if (msg.action === "startCapture") startCapture();
   if (msg.action === "stopCapture") stopCapture();
 });
@@ -14,6 +17,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 function startCapture() {
   capturing = true;
+  console.log("[Decova] Capture mode started");
   document.body.classList.add("decova-active");
   createTooltip();
   document.addEventListener("mouseover", onMouseOver);
