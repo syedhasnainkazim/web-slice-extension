@@ -11,12 +11,6 @@ let isCapturing = false;
 captureBtn.addEventListener("click", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-  // Skip unsupported URLs
-  if (tab.url?.startsWith("chrome://") || tab.url?.startsWith("edge://")) {
-    statusText.textContent = "Cannot capture on browser pages";
-    return;
-  }
-
   isCapturing = !isCapturing;
 
   if (isCapturing) {
@@ -32,11 +26,10 @@ captureBtn.addEventListener("click", async () => {
         captureBtn.classList.remove("active");
         captureLabel.textContent = "Start Capturing";
         statusDot.className = "status-dot idle";
-        statusText.textContent = "Error: Page may not support capture";
+        statusText.textContent = "Error: Could not reach page";
         return;
       }
       console.log("Capture started successfully");
-      // Close popup after short delay to let capture mode initialize
       setTimeout(() => window.close(), 200);
     });
   } else {
