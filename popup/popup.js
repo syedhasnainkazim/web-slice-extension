@@ -21,7 +21,7 @@ captureBtn.addEventListener("click", async () => {
 
     chrome.tabs.sendMessage(tab.id, { action: "startCapture" }, (response) => {
       if (chrome.runtime.lastError) {
-        console.error("Error:", chrome.runtime.lastError);
+        console.error("Error:", chrome.runtime.lastError.message);
         isCapturing = false;
         captureBtn.classList.remove("active");
         captureLabel.textContent = "Start Capturing";
