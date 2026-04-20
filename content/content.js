@@ -7,10 +7,16 @@ console.log("[Decova] Content script loaded");
 
 // ─── Message listener ────────────────────────────────────────────────────────
 
-chrome.runtime.onMessage.addListener((msg) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   console.log("[Decova] Message received:", msg.action);
-  if (msg.action === "startCapture") startCapture();
-  if (msg.action === "stopCapture") stopCapture();
+  if (msg.action === "startCapture") {
+    startCapture();
+    sendResponse({ success: true });
+  }
+  if (msg.action === "stopCapture") {
+    stopCapture();
+    sendResponse({ success: true });
+  }
 });
 
 // ─── Capture mode on/off ─────────────────────────────────────────────────────
