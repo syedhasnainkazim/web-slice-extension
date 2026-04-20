@@ -29,8 +29,11 @@ captureBtn.addEventListener("click", async () => {
         statusText.textContent = "Error: Could not reach page";
         return;
       }
-      console.log("Capture started successfully");
-      setTimeout(() => window.close(), 200);
+
+      if (response?.success) {
+        console.log("Capture started successfully");
+        setTimeout(() => window.close(), 200);
+      }
     });
   } else {
     captureBtn.classList.remove("active");
