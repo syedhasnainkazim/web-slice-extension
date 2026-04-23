@@ -34,7 +34,7 @@ body {
 }
 
 .logo-icon {
-  color: #7c6ff7;
+  color: #1a73e8;
   font-size: 14px;
 }
 
@@ -84,8 +84,8 @@ body {
 }
 
 .status-dot.active {
-  background: #7c6ff7;
-  box-shadow: 0 0 6px #7c6ff755;
+  background: #1a73e8;
+  box-shadow: 0 0 6px #1a73e855;
   animation: pulse 1.5s infinite;
 }
 
@@ -116,7 +116,7 @@ body {
   gap: 8px;
   width: 100%;
   padding: 12px;
-  background: #7c6ff7;
+  background: #1a73e8;
   color: #fff;
   border: none;
   border-radius: 10px;
@@ -128,7 +128,7 @@ body {
 }
 
 .capture-btn:hover {
-  background: #6a5de8;
+  background: #1557b0;
 }
 
 .capture-btn:active {
@@ -136,9 +136,9 @@ body {
 }
 
 .capture-btn.active {
-  background: #f0effe;
-  border: 1px solid #7c6ff7;
-  color: #7c6ff7;
+  background: #e8f0fe;
+  border: 1px solid #1a73e8;
+  color: #1a73e8;
 }
 
 /* Recent section */
@@ -257,5 +257,5 @@ body {
 }
 
 .footer-link:hover {
-  color: #7c6ff7;
+  color: #1a73e8;
 }

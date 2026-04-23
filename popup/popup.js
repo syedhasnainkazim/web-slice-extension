@@ -10,6 +10,7 @@ let isCapturing = false;
 // Toggle capture mode
 captureBtn.addEventListener("click", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab) return;
 
   isCapturing = !isCapturing;
 
@@ -19,20 +20,46 @@ captureBtn.addEventListener("click", async () => {
     statusDot.className = "status-dot active";
     statusText.textContent = "Capture mode active";
 
-    chrome.tabs.sendMessage(tab.id, { action: "startCapture" }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.error("Error:", chrome.runtime.lastError.message);
-        isCapturing = false;
-        captureBtn.classList.remove("active");
-        captureLabel.textContent = "Start Capturing";
-        statusDot.className = "status-dot idle";
-        statusText.textContent = "Error: Could not reach page";
-        return;
-      }
+    function sendStartCapture() {
+      chrome.tabs.sendMessage(tab.id, { action: "startCapture" }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error("Error:", chrome.runtime.lastError.message);
+          isCapturing = false;
+          captureBtn.classList.remove("active");
+          captureLabel.textContent = "Start Capturing";
+          statusDot.className = "status-dot idle";
+          statusText.textContent = "Error: Could not reach page";
+          return;
+        }
+        if (response?.success) {
+          setTimeout(() => window.close(), 200);
+        }
+      });
+    }
 
-      if (response?.success) {
-        console.log("Capture started successfully");
-        setTimeout(() => window.close(), 200);
+    // Try sending directly first; if content script isn't injected yet, inject it then retry
+    chrome.tabs.sendMessage(tab.id, { action: "ping" }, (response) => {
+      if (chrome.runtime.lastError) {
+        chrome.scripting.insertCSS(
+          { target: { tabId: tab.id }, files: ["content/content.css"] },
+          () => void chrome.runtime.lastError
+        );
+        chrome.scripting.executeScript(
+          { target: { tabId: tab.id }, files: ["content/content.js"] },
+          () => {
+            if (chrome.runtime.lastError) {
+              isCapturing = false;
+              captureBtn.classList.remove("active");
+              captureLabel.textContent = "Start Capturing";
+              statusDot.className = "status-dot idle";
+              statusText.textContent = "Error: Could not reach page";
+              return;
+            }
+            sendStartCapture();
+          }
+        );
+      } else {
+        sendStartCapture();
       }
     });
   } else {
@@ -87,6 +114,7 @@ function loadRecent() {
       info.appendChild(meta);
       item.appendChild(thumb);
       item.appendChild(info);
+      item.addEventListener("click", openDashboard);
       recentList.appendChild(item);
     });
   });

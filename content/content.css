@@ -5,7 +5,7 @@
 }
 
 .decova-highlight {
-  outline: 2px solid #7c6ff7 !important;
+  outline: 2px solid #1a73e8 !important;
   outline-offset: 2px !important;
   background-color: rgba(124, 111, 247, 0.06) !important;
   transition: outline 0.1s, background-color 0.1s;
@@ -20,13 +20,95 @@
   color: #111111;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 12px;
-  font-weight: 500;
-  padding: 5px 10px;
-  border-radius: 6px;
+  padding: 0;
+  border-radius: 10px;
   pointer-events: none;
   border: 1px solid #e0e0e0;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.14);
   white-space: nowrap;
+  min-width: 160px;
+  max-width: 260px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.decova-tooltip-preview-wrap {
+  width: 100%;
+  min-height: 60px;
+  max-height: 160px;
+  background: #f5f5f5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.decova-tooltip-preview-img {
+  display: block;
+  max-width: 100%;
+  max-height: 160px;
+  object-fit: contain;
+}
+
+.decova-tooltip-preview-loading {
+  font-size: 10px;
+  color: #bbb;
+}
+
+.decova-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+}
+
+.decova-tooltip-tag {
+  padding-top: 9px;
+}
+
+.decova-tooltip-tag {
+  font-size: 11px;
+  font-weight: 700;
+  color: #1a73e8;
+  letter-spacing: 0.2px;
+}
+
+.decova-tooltip-swatches {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.decova-tooltip-swatch {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0,0,0,0.1);
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.decova-tooltip-font {
+  font-size: 11px;
+  color: #555;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.decova-tooltip-size {
+  font-size: 11px;
+  color: #999;
+}
+
+.decova-tooltip-hint {
+  font-size: 10px;
+  color: #bbb;
+  border-top: 1px solid #f0f0f0;
+  padding: 6px 12px 9px;
+  margin-top: 4px;
 }
 
 /* ── Preview Panel ─────────────────────────────────────────────────────────── */
@@ -210,14 +292,14 @@
 }
 
 .cs-copy-tw {
-  background: #f0effe;
-  border-color: #ddd8fc;
-  color: #7c6ff7;
+  background: #e8f0fe;
+  border-color: #c5d9f6;
+  color: #1a73e8;
 }
 
 .cs-copy-tw:hover {
-  background: #e6e1fd;
-  color: #5b52e0;
+  background: #d2e3fc;
+  color: #1557b0;
 }
 
 /* Save section inputs */
@@ -236,7 +318,7 @@
 }
 
 .cs-input:focus {
-  border-color: #7c6ff7;
+  border-color: #1a73e8;
 }
 
 .cs-input option {
@@ -276,7 +358,7 @@
 .cs-save {
   flex: 2;
   padding: 9px;
-  background: #7c6ff7;
+  background: #1a73e8;
   border: none;
   border-radius: 8px;
   color: #fff;
@@ -287,7 +369,7 @@
 }
 
 .cs-save:hover {
-  background: #6a5de8;
+  background: #1557b0;
 }
 
 /* ── Toast ─────────────────────────────────────────────────────────────────── */
