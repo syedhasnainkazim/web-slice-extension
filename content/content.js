@@ -2,6 +2,7 @@ let capturing = false;
 let hoveredEl = null;
 let tooltip = null;
 let previewPanel = null;
+let tooltipPreviewTimer = null;
 
 console.log("[Decova] Content script loaded");
 
@@ -9,12 +10,17 @@ console.log("[Decova] Content script loaded");
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   console.log("[Decova] Message received:", msg.action);
+  if (msg.action === "ping") {
+    sendResponse({ success: true });
+  }
   if (msg.action === "startCapture") {
     startCapture();
+    chrome.runtime.sendMessage({ action: "startCapture" });
     sendResponse({ success: true });
   }
   if (msg.action === "stopCapture") {
     stopCapture();
+    chrome.runtime.sendMessage({ action: "stopCapture" });
     sendResponse({ success: true });
   }
 });
@@ -40,6 +46,7 @@ function startCapture() {
 
 function stopCapture() {
   capturing = false;
+  clearTimeout(tooltipPreviewTimer);
   document.body.classList.remove("decova-active");
   clearHighlight();
   removeTooltip();
@@ -54,8 +61,89 @@ function stopCapture() {
 function createTooltip() {
   tooltip = document.createElement("div");
   tooltip.className = "decova-tooltip";
-  tooltip.textContent = "Click to capture";
+  tooltip.innerHTML = `<span class="decova-tooltip-hint">Hover an element to preview</span>`;
   document.body.appendChild(tooltip);
+}
+
+function updateTooltip(el) {
+  if (!tooltip) return;
+  const s = window.getComputedStyle(el);
+  const rect = el.getBoundingClientRect();
+  const tag = el.tagName.toLowerCase();
+  const bg = s.backgroundColor;
+  const textColor = s.color;
+  const fontFamily = s.fontFamily.split(",")[0].replace(/"/g, "").trim();
+  const fontSize = s.fontSize;
+  const w = Math.round(rect.width);
+  const h = Math.round(rect.height);
+  const hasBg = bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent";
+
+  // Show info immediately, screenshot preview loads after settle
+  tooltip.innerHTML = `
+    <div class="decova-tooltip-preview-wrap">
+      <div class="decova-tooltip-preview-loading">Loading preview…</div>
+    </div>
+    <div class="decova-tooltip-row decova-tooltip-tag">&lt;${tag}&gt; &middot; ${w}&times;${h}px</div>
+    <div class="decova-tooltip-row decova-tooltip-swatches">
+      ${hasBg ? `<span class="decova-tooltip-swatch" style="background:${bg}"></span>` : ""}
+      <span class="decova-tooltip-swatch" style="background:${textColor}"></span>
+      <span class="decova-tooltip-font">${fontFamily} &middot; ${fontSize}</span>
+    </div>
+    <div class="decova-tooltip-hint">Click to capture &middot; Esc to stop</div>
+  `;
+
+  // After 200ms debounce, take a screenshot and crop to this element
+  clearTimeout(tooltipPreviewTimer);
+  tooltipPreviewTimer = setTimeout(() => {
+    if (!tooltip || !capturing) return;
+    // Re-read rect in case the page scrolled during the debounce
+    const freshRect = el.getBoundingClientRect();
+    // Briefly hide tooltip so it doesn't appear in the shot
+    tooltip.style.visibility = "hidden";
+    try {
+      chrome.runtime.sendMessage({ action: "captureTab" }, (response) => {
+        if (tooltip) tooltip.style.visibility = "";
+        if (chrome.runtime.lastError || !response?.dataUrl) return;
+
+        const dpr = window.devicePixelRatio || 1;
+        const sx = Math.round(freshRect.left * dpr);
+        const sy = Math.round(freshRect.top * dpr);
+        const sw = Math.round(freshRect.width * dpr);
+        const sh = Math.round(freshRect.height * dpr);
+        if (sw < 1 || sh < 1) return;
+
+        const maxW = 240;
+        const scale = Math.min(maxW / sw, 1);
+        const dw = Math.max(1, Math.round(sw * scale));
+        const dh = Math.max(1, Math.round(sh * scale));
+
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          canvas.width = dw;
+          canvas.height = dh;
+          canvas.getContext("2d").drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+
+          // Inject screenshot into the tooltip preview area
+          if (!tooltip) return;
+          const wrap = tooltip.querySelector(".decova-tooltip-preview-wrap");
+          if (wrap) {
+            wrap.innerHTML = `<img class="decova-tooltip-preview-img" src="${dataUrl}" style="width:${dw}px;height:${dh}px;" />`;
+          }
+        };
+        img.src = response.dataUrl;
+      });
+    } catch (e) {
+      if (tooltip) tooltip.style.visibility = "";
+    }
+  }, 200);
+}
+
+function resetTooltip() {
+  clearTimeout(tooltipPreviewTimer);
+  if (!tooltip) return;
+  tooltip.innerHTML = `<span class="decova-tooltip-hint">Hover an element to preview</span>`;
 }
 
 function removeTooltip() {
@@ -64,8 +152,14 @@ function removeTooltip() {
 
 document.addEventListener("mousemove", (e) => {
   if (!tooltip) return;
-  tooltip.style.left = e.clientX + 14 + "px";
-  tooltip.style.top = e.clientY + 14 + "px";
+  const tw = tooltip.offsetWidth || 260;
+  const th = tooltip.offsetHeight || 200;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const x = e.clientX + 16 + tw > vw ? e.clientX - tw - 8 : e.clientX + 16;
+  const y = e.clientY + 16 + th > vh ? e.clientY - th - 8 : e.clientY + 16;
+  tooltip.style.left = x + "px";
+  tooltip.style.top  = y + "px";
 });
 
 // ─── Hover highlight ─────────────────────────────────────────────────────────
@@ -77,10 +171,18 @@ function onMouseOver(e) {
   clearHighlight();
   hoveredEl = el;
   hoveredEl.classList.add("decova-highlight");
+  updateTooltip(el);
 }
 
-function onMouseOut() {
+function onMouseOut(e) {
+  // Don't reset if moving to another element that smart-selects to the same container
+  if (e.relatedTarget) {
+    const next = smartSelect(e.relatedTarget);
+    if (next && next === hoveredEl) return;
+  }
+  clearTimeout(tooltipPreviewTimer);
   clearHighlight();
+  resetTooltip();
 }
 
 function clearHighlight() {
@@ -149,6 +251,9 @@ function onClick(e) {
   e.preventDefault();
   e.stopPropagation();
 
+  // Cancel any pending tooltip preview screenshot
+  clearTimeout(tooltipPreviewTimer);
+
   const el = smartSelect(e.target);
   if (!el) return;
 
@@ -177,6 +282,7 @@ function onKeyDown(e) {
     clearHighlight();
     hoveredEl = hoveredEl.parentElement;
     hoveredEl.classList.add("decova-highlight");
+    updateTooltip(hoveredEl);
   }
 }
 
@@ -238,40 +344,46 @@ function captureElementScreenshot(el, callback) {
   // Temporarily hide the floating tooltip so it doesn't appear in the shot
   if (tooltip) tooltip.style.visibility = "hidden";
 
-  chrome.runtime.sendMessage({ action: "captureTab" }, (response) => {
+  try {
+    chrome.runtime.sendMessage({ action: "captureTab" }, (response) => {
+      if (tooltip) tooltip.style.visibility = "";
+
+      if (chrome.runtime.lastError || !response?.dataUrl) {
+        callback(null);
+        return;
+      }
+
+      const img = new Image();
+      img.onload = () => {
+        const dpr = window.devicePixelRatio || 1;
+
+        // Source coordinates in device pixels
+        const sx = Math.round(rect.left * dpr);
+        const sy = Math.round(rect.top * dpr);
+        const sw = Math.round(rect.width * dpr);
+        const sh = Math.round(rect.height * dpr);
+
+        // Cap output width at 600px to keep storage lean
+        const maxPx = 600;
+        const scale = sw > maxPx ? maxPx / sw : 1;
+        const dw = Math.max(1, Math.round(sw * scale));
+        const dh = Math.max(1, Math.round(sh * scale));
+
+        const canvas = document.createElement("canvas");
+        canvas.width = dw;
+        canvas.height = dh;
+        canvas.getContext("2d").drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+
+        callback(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.onerror = () => callback(null);
+      img.src = response.dataUrl;
+    });
+  } catch (e) {
+    // Extension context was invalidated (e.g. extension reloaded) — skip screenshot
     if (tooltip) tooltip.style.visibility = "";
-
-    if (chrome.runtime.lastError || !response?.dataUrl) {
-      callback(null);
-      return;
-    }
-
-    const img = new Image();
-    img.onload = () => {
-      const dpr = window.devicePixelRatio || 1;
-
-      // Source coordinates in device pixels
-      const sx = Math.round(rect.left * dpr);
-      const sy = Math.round(rect.top * dpr);
-      const sw = Math.round(rect.width * dpr);
-      const sh = Math.round(rect.height * dpr);
-
-      // Cap output width at 600px to keep storage lean
-      const maxPx = 600;
-      const scale = sw > maxPx ? maxPx / sw : 1;
-      const dw = Math.max(1, Math.round(sw * scale));
-      const dh = Math.max(1, Math.round(sh * scale));
-
-      const canvas = document.createElement("canvas");
-      canvas.width = dw;
-      canvas.height = dh;
-      canvas.getContext("2d").drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
-
-      callback(canvas.toDataURL("image/jpeg", 0.85));
-    };
-    img.onerror = () => callback(null);
-    img.src = response.dataUrl;
-  });
+    callback(null);
+  }
 }
 
 // ─── Preview panel ───────────────────────────────────────────────────────────
@@ -296,17 +408,27 @@ function showPreviewPanel(el, data) {
     const select = previewPanel.querySelector("#cs-collection");
     if (!select) return;
 
+    const clips = result.clips || [];
     const named = result.collections || [];
-    // Also pull any collection names from existing clips that aren't in the list
-    const clipCollections = (result.clips || [])
+    const clipCollections = clips
       .map((c) => c.collectionId)
       .filter((c) => c && c !== "Uncategorized");
     const all = [...new Set([...named, ...clipCollections])].sort();
 
+    // Count items in Uncategorized
+    const uncatCount = clips.filter(
+      (c) => !c.collectionId || c.collectionId === "Uncategorized"
+    ).length;
+    if (uncatCount > 0) {
+      const defaultOpt = select.querySelector('option[value="Uncategorized"]');
+      if (defaultOpt) defaultOpt.textContent = `Uncategorized (${uncatCount})`;
+    }
+
     all.forEach((name) => {
+      const count = clips.filter((c) => c.collectionId === name).length;
       const opt = document.createElement("option");
       opt.value = name;
-      opt.textContent = name;
+      opt.textContent = count > 0 ? `${name} (${count})` : name;
       select.appendChild(opt);
     });
   });
@@ -575,8 +697,8 @@ function generateTailwind(data) {
   }
 
   // Padding / margin
-  twSpacingClasses(l.padding, "p").forEach(c => cls.push(c));
-  twSpacingClasses(l.margin,  "m").forEach(c => cls.push(c));
+  twSpacingClasses(l.padding, "p").forEach(v => cls.push(v));
+  twSpacingClasses(l.margin,  "m").forEach(v => cls.push(v));
 
   // Font family (generic bucket)
   const fname = (t.fontFamily || "").split(",")[0].replace(/"/g,"").trim().toLowerCase();
