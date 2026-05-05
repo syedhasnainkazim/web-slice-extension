@@ -3,6 +3,7 @@ let hoveredEl = null;
 let tooltip = null;
 let previewPanel = null;
 let tooltipPreviewTimer = null;
+let cachedTooltipScreenshot = null; // { el, dataUrl } — reused on click to save
 
 console.log("[Decova] Content script loaded");
 
@@ -136,6 +137,9 @@ function updateTooltip(el) {
           canvas.getContext("2d").drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
           const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
 
+          // Cache so the click-to-save can reuse this exact image
+          cachedTooltipScreenshot = { el, dataUrl };
+
           // Inject screenshot into the tooltip preview area
           if (!tooltip) return;
           const wrap = tooltip.querySelector(".decova-tooltip-preview-wrap");
@@ -192,6 +196,7 @@ function onMouseOut(e) {
     if (next && next === hoveredEl) return;
   }
   clearTimeout(tooltipPreviewTimer);
+  cachedTooltipScreenshot = null;
   clearHighlight();
   resetTooltip();
 }
@@ -352,6 +357,12 @@ function captureElementScreenshot(el, callback) {
   // Skip capture for elements too small to be useful
   if (rect.width < 4 || rect.height < 4) { callback(null); return; }
 
+  // Reuse the tooltip preview screenshot if it was taken for this element
+  if (cachedTooltipScreenshot && cachedTooltipScreenshot.el === el) {
+    callback(cachedTooltipScreenshot.dataUrl);
+    return;
+  }
+
   // Temporarily hide the floating tooltip so it doesn't appear in the shot
   if (tooltip) tooltip.style.visibility = "hidden";
 
@@ -415,7 +426,7 @@ function showPreviewPanel(el, data) {
   requestAnimationFrame(() => previewPanel.classList.add("visible"));
 
   // Populate collection picker from storage
-  chrome.storage.local.get(["collections", "clips"], (result) => {
+  chrome.storage.local.get(["collections", "clips", "lastCollection"], (result) => {
     const picker = previewPanel.querySelector("#cs-collection-picker");
     if (!picker) return;
 
@@ -440,8 +451,10 @@ function showPreviewPanel(el, data) {
       })),
     ];
 
-    picker.innerHTML = items.map((item, i) => `
-      <div class="cs-coll-option${i === 0 ? " active" : ""}" data-id="${item.id.replace(/"/g, "&quot;")}">
+    const defaultId = result.lastCollection || "Uncategorized";
+
+    picker.innerHTML = items.map((item) => `
+      <div class="cs-coll-option${item.id === defaultId ? " active" : ""}" data-id="${item.id.replace(/"/g, "&quot;")}">
         <span class="cs-coll-dot" style="background:${item.color}"></span>
         <span class="cs-coll-name">${sanitize(item.name)}</span>
         ${item.count > 0 ? `<span class="cs-coll-count">${item.count}</span>` : ""}
@@ -669,7 +682,7 @@ function saveClip(data, el) {
     }
 
     clips.push(clip);
-    chrome.storage.local.set({ clips, collections }, () => {
+    chrome.storage.local.set({ clips, collections, lastCollection: collectionId }, () => {
       closePreviewPanel();
       showToast("Saved to " + collectionId + " ✓");
     });
