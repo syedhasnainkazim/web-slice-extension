@@ -1,9 +1,5 @@
 /* ── Highlight ─────────────────────────────────────────────────────────────── */
 
-.decova-active * {
-  cursor: crosshair !important;
-}
-
 .decova-highlight {
   outline: 2px solid #1a73e8 !important;
   outline-offset: 2px !important;
@@ -154,6 +150,12 @@
   top: 0;
   background: #ffffff;
   z-index: 1;
+  cursor: grab;
+  user-select: none;
+}
+
+.cs-header:active {
+  cursor: grabbing;
 }
 
 .cs-title {
@@ -324,6 +326,72 @@
 .cs-input option {
   background: #ffffff;
   color: #111111;
+}
+
+.cs-new-coll-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 6px 10px;
+  background: none;
+  border: 1px dashed #c5d9f6;
+  border-radius: 8px;
+  color: #1a73e8;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, border-color 0.15s;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.cs-new-coll-btn:hover {
+  background: #f0f6ff;
+  border-color: #1a73e8;
+}
+
+.cs-new-coll-row {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.cs-new-coll-row .cs-input {
+  flex: 1;
+  margin-top: 0;
+  border-color: #1a73e8;
+  background: #f0f6ff;
+}
+
+.cs-new-coll-cancel {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  color: #bbb;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.cs-new-coll-cancel:hover {
+  color: #555;
+  border-color: #ccc;
+}
+
+.cs-new-collection-input {
+  margin-top: 4px;
+  border-color: #1a73e8;
+  background: #f0f6ff;
 }
 
 /* Footer */

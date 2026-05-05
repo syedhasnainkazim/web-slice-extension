@@ -1,9 +1,20 @@
 // ── State ─────────────────────────────────────────────────────────────────────
 
 let allClips = [];
-let collections = [];       // named collections array in storage
+let collections = [];
 let activeCollection = "all";
+let activeType = "all";
 let searchQuery = "";
+
+const COLLECTION_COLORS = ["#1a73e8", "#f9a825", "#34a853", "#ea4335", "#9c27b0", "#00bcd4", "#ff7043", "#8bc34a"];
+
+function getCollectionColor(name) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) & 0xfffffff;
+  }
+  return COLLECTION_COLORS[hash % COLLECTION_COLORS.length];
+}
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
@@ -30,6 +41,7 @@ function loadData() {
     });
 
     renderSidebar();
+    renderTypeFilters();
     renderGrid();
     updateSidebarTotal();
   });
@@ -38,92 +50,138 @@ function loadData() {
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
 function renderSidebar() {
-  const list = document.getElementById("collections-list");
+  const nav = document.getElementById("sidebar-nav");
+  if (!nav) return;
 
-  const uncatCount = allClips.filter(
-    (c) => !c.collectionId || c.collectionId === "Uncategorized"
-  ).length;
+  const recentCutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const recentCount = allClips.filter((c) => new Date(c.savedAt).getTime() > recentCutoff).length;
+  const uncatCount = allClips.filter((c) => !c.collectionId || c.collectionId === "Uncategorized").length;
 
-  const items = [
+  const viewItems = [
     { id: "all", name: "All Clips", count: allClips.length },
+    { id: "recent", name: "Recent", count: recentCount },
+  ];
+
+  const collectionItems = [
     ...(uncatCount > 0
-      ? [{ id: "Uncategorized", name: "Uncategorized", count: uncatCount }]
+      ? [{ id: "Uncategorized", name: "Uncategorized", count: uncatCount, color: "#bbb" }]
       : []),
     ...collections.map((name) => ({
       id: name,
       name,
       count: allClips.filter((c) => c.collectionId === name).length,
+      color: getCollectionColor(name),
     })),
   ];
 
-  list.innerHTML = items
-    .map(
-      (item) => `
-      <div class="collection-item ${activeCollection === item.id ? "active" : ""}"
-           data-id="${escAttr(item.id)}">
-        <span class="collection-name">${escHtml(item.name)}</span>
-        <span class="collection-count">${item.count}</span>
-      </div>`
-    )
-    .join("");
+  const renderItem = (item, showDot = false) => `
+    <div class="collection-item ${activeCollection === item.id ? "active" : ""}" data-id="${escAttr(item.id)}">
+      ${showDot ? `<span class="collection-dot" style="background:${escAttr(item.color)};"></span>` : ""}
+      <span class="collection-name">${escHtml(item.name)}</span>
+      <span class="collection-count">${item.count}</span>
+    </div>`;
 
-  list.querySelectorAll(".collection-item").forEach((el) => {
+  nav.innerHTML = `
+    <div class="sidebar-section">
+      <div class="nav-label">Views</div>
+      ${viewItems.map((item) => renderItem(item, false)).join("")}
+    </div>
+
+    <div class="sidebar-section">
+      <div class="nav-label">Collections</div>
+      ${collectionItems.map((item) => renderItem(item, true)).join("")}
+      <button class="new-collection-btn" id="new-collection-btn">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+        New Collection
+      </button>
+    </div>
+  `;
+
+  nav.querySelectorAll(".collection-item").forEach((el) => {
     el.addEventListener("click", () => {
       activeCollection = el.dataset.id;
-      document.getElementById("page-title").textContent =
-        el.querySelector(".collection-name").textContent;
+      const titleEl = document.getElementById("page-title");
+      if (titleEl) titleEl.textContent = el.querySelector(".collection-name").textContent;
       renderSidebar();
       renderGrid();
     });
   });
+
+  const newBtn = document.getElementById("new-collection-btn");
+  if (newBtn) {
+    newBtn.addEventListener("click", () => {
+      newBtn.style.display = "none";
+      const form = document.createElement("div");
+      form.className = "new-collection-form";
+      form.innerHTML = `
+        <input class="new-collection-input" id="nc-input" placeholder="Collection name…" />
+        <button class="new-collection-confirm" id="nc-confirm">Add</button>
+      `;
+      newBtn.parentElement.appendChild(form);
+      const input = form.querySelector("#nc-input");
+      input.focus();
+      const submit = () => {
+        const name = input.value.trim();
+        if (name && !collections.includes(name)) {
+          collections.push(name);
+          chrome.storage.local.set({ collections }, () => {
+            form.remove();
+            newBtn.style.display = "";
+            renderSidebar();
+          });
+        } else {
+          form.remove();
+          newBtn.style.display = "";
+        }
+      };
+      form.querySelector("#nc-confirm").addEventListener("click", submit);
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") submit();
+        if (e.key === "Escape") { form.remove(); newBtn.style.display = ""; }
+      });
+    });
+  }
 }
 
 function updateSidebarTotal() {
   const el = document.getElementById("sidebar-total");
-  el.textContent = `${allClips.length} clip${allClips.length !== 1 ? "s" : ""} saved`;
+  if (el) el.textContent = `${allClips.length} clip${allClips.length !== 1 ? "s" : ""} saved`;
 }
 
-// ── New collection ────────────────────────────────────────────────────────────
+// ── Type filters ──────────────────────────────────────────────────────────────
 
-document.getElementById("new-collection-btn").addEventListener("click", () => {
-  const btn = document.getElementById("new-collection-btn");
-  btn.style.display = "none";
+function renderTypeFilters() {
+  const container = document.getElementById("type-filters");
+  if (!container) return;
 
-  const form = document.createElement("div");
-  form.className = "new-collection-form";
-  form.innerHTML = `
-    <input class="new-collection-input" id="nc-input" placeholder="Collection name…" />
-    <button class="new-collection-confirm" id="nc-confirm">Add</button>
-  `;
-  btn.parentElement.appendChild(form);
+  const types = [...new Set(allClips.map((c) => c.styles?.tagName).filter(Boolean))].sort();
 
-  const input = form.querySelector("#nc-input");
-  input.focus();
+  if (types.length === 0) {
+    container.innerHTML = "";
+    container.style.display = "none";
+    return;
+  }
 
-  const submit = () => {
-    const name = input.value.trim();
-    if (name && !collections.includes(name)) {
-      collections.push(name);
-      chrome.storage.local.set({ collections }, () => {
-        form.remove();
-        btn.style.display = "";
-        renderSidebar();
-      });
-    } else {
-      form.remove();
-      btn.style.display = "";
-    }
-  };
+  container.style.display = "";
 
-  form.querySelector("#nc-confirm").addEventListener("click", submit);
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") submit();
-    if (e.key === "Escape") {
-      form.remove();
-      btn.style.display = "";
-    }
+  const items = [{ id: "all", label: "All" }, ...types.map((t) => ({ id: t, label: t }))];
+
+  container.innerHTML = items
+    .map(
+      (t) => `<button class="type-pill ${activeType === t.id ? "active" : ""}" data-type="${escAttr(t.id)}">${escHtml(t.label)}</button>`
+    )
+    .join("");
+
+  container.querySelectorAll(".type-pill").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      activeType = btn.dataset.type;
+      renderTypeFilters();
+      renderGrid();
+    });
   });
-});
+}
 
 // ── Search ────────────────────────────────────────────────────────────────────
 
@@ -141,11 +199,15 @@ function renderGrid() {
 
   let clips = [...allClips].reverse(); // most recent first
 
-  if (activeCollection !== "all") {
-    clips = clips.filter((c) => {
-      const cid = c.collectionId || "Uncategorized";
-      return cid === activeCollection;
-    });
+  if (activeCollection === "recent") {
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    clips = clips.filter((c) => new Date(c.savedAt).getTime() > cutoff);
+  } else if (activeCollection !== "all") {
+    clips = clips.filter((c) => (c.collectionId || "Uncategorized") === activeCollection);
+  }
+
+  if (activeType !== "all") {
+    clips = clips.filter((c) => c.styles?.tagName === activeType);
   }
 
   if (searchQuery) {
@@ -153,7 +215,8 @@ function renderGrid() {
       (c) =>
         (c.title || "").toLowerCase().includes(searchQuery) ||
         (c.collectionId || "").toLowerCase().includes(searchQuery) ||
-        (c.sourceUrl || "").toLowerCase().includes(searchQuery)
+        (c.sourceUrl || "").toLowerCase().includes(searchQuery) ||
+        (c.styles?.tagName || "").toLowerCase().includes(searchQuery)
     );
   }
 

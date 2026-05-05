@@ -32,6 +32,16 @@ function startCapture() {
     capturing = true;
     console.log("[Decova] Capture mode started");
     document.body.classList.add("decova-active");
+
+    // Inject a runtime <style> so the crosshair beats inline styles and
+    // any page-level !important rules (grab, text, pointer, etc.)
+    if (!document.getElementById("decova-cursor-style")) {
+      const s = document.createElement("style");
+      s.id = "decova-cursor-style";
+      s.textContent = "*, *::before, *::after { cursor: crosshair !important; }";
+      document.head.appendChild(s);
+    }
+
     createTooltip();
     document.addEventListener("mouseover", onMouseOver);
     document.addEventListener("mouseout", onMouseOut);
@@ -48,6 +58,7 @@ function stopCapture() {
   capturing = false;
   clearTimeout(tooltipPreviewTimer);
   document.body.classList.remove("decova-active");
+  document.getElementById("decova-cursor-style")?.remove();
   clearHighlight();
   removeTooltip();
   document.removeEventListener("mouseover", onMouseOver);
@@ -433,6 +444,66 @@ function showPreviewPanel(el, data) {
     });
   });
 
+  // New collection button
+  previewPanel.querySelector("#cs-new-coll-btn").addEventListener("click", () => {
+    previewPanel.querySelector("#cs-new-coll-btn").style.display = "none";
+    previewPanel.querySelector("#cs-new-coll-row").style.display = "flex";
+    previewPanel.querySelector("#cs-new-collection").focus();
+  });
+
+  previewPanel.querySelector("#cs-new-coll-cancel").addEventListener("click", () => {
+    previewPanel.querySelector("#cs-new-coll-row").style.display = "none";
+    previewPanel.querySelector("#cs-new-coll-btn").style.display = "";
+    previewPanel.querySelector("#cs-new-collection").value = "";
+  });
+
+  // Draggable panel via header
+  let isDragging = false;
+  let dragOffX = 0, dragOffY = 0;
+  const panelHeader = previewPanel.querySelector(".cs-header");
+
+  function onPanelDragStart(e) {
+    if (e.target.closest(".cs-close")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = previewPanel.getBoundingClientRect();
+    previewPanel.style.transition = "none";
+    previewPanel.style.right = "auto";
+    previewPanel.style.transform = "none";
+    previewPanel.style.left = rect.left + "px";
+    previewPanel.style.top = rect.top + "px";
+    dragOffX = e.clientX - rect.left;
+    dragOffY = e.clientY - rect.top;
+    isDragging = true;
+    panelHeader.style.cursor = "grabbing";
+  }
+
+  function onPanelDragMove(e) {
+    if (!isDragging || !previewPanel) return;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const pw = previewPanel.offsetWidth;
+    const ph = previewPanel.offsetHeight;
+    previewPanel.style.left = Math.max(0, Math.min(vw - pw, e.clientX - dragOffX)) + "px";
+    previewPanel.style.top = Math.max(0, Math.min(vh - ph, e.clientY - dragOffY)) + "px";
+  }
+
+  function onPanelDragEnd() {
+    if (!isDragging) return;
+    isDragging = false;
+    if (panelHeader) panelHeader.style.cursor = "grab";
+    if (previewPanel) previewPanel.style.transition = "";
+  }
+
+  panelHeader.addEventListener("mousedown", onPanelDragStart);
+  document.addEventListener("mousemove", onPanelDragMove);
+  document.addEventListener("mouseup", onPanelDragEnd);
+
+  previewPanel._cleanupDrag = () => {
+    document.removeEventListener("mousemove", onPanelDragMove);
+    document.removeEventListener("mouseup", onPanelDragEnd);
+  };
+
   // Close button
   previewPanel.querySelector(".cs-close").addEventListener("click", closePreviewPanel);
 
@@ -459,6 +530,7 @@ function showPreviewPanel(el, data) {
 
 function closePreviewPanel() {
   if (!previewPanel) return;
+  previewPanel._cleanupDrag?.();
   previewPanel.classList.remove("visible");
   setTimeout(() => {
     previewPanel?.remove();
@@ -537,6 +609,11 @@ function buildPanelHTML(data) {
         <select class="cs-input" id="cs-collection">
           <option value="Uncategorized">Uncategorized</option>
         </select>
+        <button class="cs-new-coll-btn" id="cs-new-coll-btn">＋ New collection</button>
+        <div class="cs-new-coll-row" id="cs-new-coll-row" style="display:none;">
+          <input class="cs-input cs-new-collection-input" id="cs-new-collection" placeholder="Collection name…" />
+          <button class="cs-new-coll-cancel" id="cs-new-coll-cancel">✕</button>
+        </div>
       </div>
     </div>
 
@@ -551,9 +628,11 @@ function buildPanelHTML(data) {
 
 function saveClip(data, el) {
   const title = previewPanel.querySelector("#cs-title").value.trim() || "Untitled Capture";
-  const collectionId = previewPanel.querySelector("#cs-collection").value || "Uncategorized";
+  const selectedCollection = previewPanel.querySelector("#cs-collection").value;
+  const newCollectionName = previewPanel.querySelector("#cs-new-collection").value.trim();
 
-  // Separate image from the styles payload so it isn't stored twice
+  const collectionId = newCollectionName || selectedCollection || "Uncategorized";
+
   const { image, ...styles } = data;
 
   const clip = {
@@ -566,10 +645,16 @@ function saveClip(data, el) {
     image: image || null,
   };
 
-  chrome.storage.local.get(["clips"], (result) => {
+  chrome.storage.local.get(["clips", "collections"], (result) => {
     const clips = result.clips || [];
+    const collections = result.collections || [];
+
+    if (newCollectionName && !collections.includes(newCollectionName)) {
+      collections.push(newCollectionName);
+    }
+
     clips.push(clip);
-    chrome.storage.local.set({ clips }, () => {
+    chrome.storage.local.set({ clips, collections }, () => {
       closePreviewPanel();
       showToast("Saved to " + collectionId + " ✓");
     });

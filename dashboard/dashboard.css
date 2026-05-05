@@ -51,12 +51,19 @@ body {
   color: #111;
 }
 
-.collections-nav {
+.sidebar-nav {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 16px 12px 12px;
+  padding: 12px 12px 12px;
   overflow-y: auto;
+  gap: 20px;
+}
+
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .nav-label {
@@ -66,14 +73,7 @@ body {
   letter-spacing: 0.8px;
   color: #bbb;
   padding: 0 8px;
-  margin-bottom: 8px;
-}
-
-.collections-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 1;
+  margin-bottom: 6px;
 }
 
 .collection-item {
@@ -116,6 +116,13 @@ body {
 
 .collection-item.active .collection-count {
   color: #7aabf0;
+}
+
+.collection-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 /* New collection button */
@@ -192,6 +199,41 @@ body {
 .total-count {
   font-size: 11px;
   color: #ccc;
+}
+
+/* ── Type filter pills ───────────────────────────────────────────────────────── */
+
+.type-filters {
+  display: flex;
+  gap: 6px;
+  padding: 12px 24px 0;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.type-pill {
+  padding: 5px 12px;
+  background: #f5f5f5;
+  border: 1px solid #e8e8e8;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #666;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+
+.type-pill:hover {
+  background: #ebebeb;
+  color: #111;
+}
+
+.type-pill.active {
+  background: #1a73e8;
+  border-color: #1a73e8;
+  color: #fff;
 }
 
 /* ── Main ────────────────────────────────────────────────────────────────────── */
