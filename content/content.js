@@ -289,7 +289,7 @@ function onKeyDown(e) {
       closePreviewPanel();
     } else {
       stopCapture();
-      chrome.runtime.sendMessage({ action: "captureStopped" });
+      try { chrome.runtime.sendMessage({ action: "captureStopped" }); } catch (e) {}
     }
   }
   // Arrow up: expand selection to parent
@@ -426,7 +426,7 @@ function showPreviewPanel(el, data) {
   requestAnimationFrame(() => previewPanel.classList.add("visible"));
 
   // Populate collection picker from storage
-  chrome.storage.local.get(["collections", "clips", "lastCollection"], (result) => {
+  try { chrome.storage.local.get(["collections", "clips", "lastCollection"], (result) => {
     const picker = previewPanel.querySelector("#cs-collection-picker");
     if (!picker) return;
 
@@ -469,7 +469,7 @@ function showPreviewPanel(el, data) {
         opt.classList.add("active");
       });
     });
-  });
+  }); } catch (e) { /* extension context invalidated — skip picker population */ }
 
   // New collection button
   previewPanel.querySelector("#cs-new-coll-btn").addEventListener("click", () => {
@@ -675,20 +675,24 @@ function saveClip(data, el) {
     image: image || null,
   };
 
-  chrome.storage.local.get(["clips", "collections"], (result) => {
-    const clips = result.clips || [];
-    const collections = result.collections || [];
+  try {
+    chrome.storage.local.get(["clips", "collections"], (result) => {
+      const clips = result.clips || [];
+      const collections = result.collections || [];
 
-    if (newCollectionName && !collections.includes(newCollectionName)) {
-      collections.push(newCollectionName);
-    }
+      if (newCollectionName && !collections.includes(newCollectionName)) {
+        collections.push(newCollectionName);
+      }
 
-    clips.push(clip);
-    chrome.storage.local.set({ clips, collections, lastCollection: collectionId }, () => {
-      closePreviewPanel();
-      showToast("Saved to " + collectionId + " ✓");
+      clips.push(clip);
+      try {
+        chrome.storage.local.set({ clips, collections, lastCollection: collectionId }, () => {
+          closePreviewPanel();
+          showToast("Saved to " + collectionId + " ✓");
+        });
+      } catch (e) { closePreviewPanel(); }
     });
-  });
+  } catch (e) { closePreviewPanel(); }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
