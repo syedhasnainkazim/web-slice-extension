@@ -414,10 +414,10 @@ function showPreviewPanel(el, data) {
   // Animate in
   requestAnimationFrame(() => previewPanel.classList.add("visible"));
 
-  // Populate collections dropdown from storage
+  // Populate collection picker from storage
   chrome.storage.local.get(["collections", "clips"], (result) => {
-    const select = previewPanel.querySelector("#cs-collection");
-    if (!select) return;
+    const picker = previewPanel.querySelector("#cs-collection-picker");
+    if (!picker) return;
 
     const clips = result.clips || [];
     const named = result.collections || [];
@@ -426,21 +426,33 @@ function showPreviewPanel(el, data) {
       .filter((c) => c && c !== "Uncategorized");
     const all = [...new Set([...named, ...clipCollections])].sort();
 
-    // Count items in Uncategorized
     const uncatCount = clips.filter(
       (c) => !c.collectionId || c.collectionId === "Uncategorized"
     ).length;
-    if (uncatCount > 0) {
-      const defaultOpt = select.querySelector('option[value="Uncategorized"]');
-      if (defaultOpt) defaultOpt.textContent = `Uncategorized (${uncatCount})`;
-    }
 
-    all.forEach((name) => {
-      const count = clips.filter((c) => c.collectionId === name).length;
-      const opt = document.createElement("option");
-      opt.value = name;
-      opt.textContent = count > 0 ? `${name} (${count})` : name;
-      select.appendChild(opt);
+    const items = [
+      { id: "Uncategorized", name: "Uncategorized", count: uncatCount, color: "#bbb" },
+      ...all.map((name) => ({
+        id: name,
+        name,
+        count: clips.filter((c) => c.collectionId === name).length,
+        color: collPickerColor(name),
+      })),
+    ];
+
+    picker.innerHTML = items.map((item, i) => `
+      <div class="cs-coll-option${i === 0 ? " active" : ""}" data-id="${item.id.replace(/"/g, "&quot;")}">
+        <span class="cs-coll-dot" style="background:${item.color}"></span>
+        <span class="cs-coll-name">${sanitize(item.name)}</span>
+        ${item.count > 0 ? `<span class="cs-coll-count">${item.count}</span>` : ""}
+      </div>
+    `).join("");
+
+    picker.querySelectorAll(".cs-coll-option").forEach((opt) => {
+      opt.addEventListener("click", () => {
+        picker.querySelectorAll(".cs-coll-option").forEach((o) => o.classList.remove("active"));
+        opt.classList.add("active");
+      });
     });
   });
 
@@ -606,9 +618,12 @@ function buildPanelHTML(data) {
       <div class="cs-section cs-save-section">
         <div class="cs-section-label">Save To</div>
         <input class="cs-input" id="cs-title" placeholder="Name this capture…" />
-        <select class="cs-input" id="cs-collection">
-          <option value="Uncategorized">Uncategorized</option>
-        </select>
+        <div class="cs-collection-picker" id="cs-collection-picker">
+          <div class="cs-coll-option active" data-id="Uncategorized">
+            <span class="cs-coll-dot" style="background:#bbb"></span>
+            <span class="cs-coll-name">Uncategorized</span>
+          </div>
+        </div>
         <button class="cs-new-coll-btn" id="cs-new-coll-btn">＋ New collection</button>
         <div class="cs-new-coll-row" id="cs-new-coll-row" style="display:none;">
           <input class="cs-input cs-new-collection-input" id="cs-new-collection" placeholder="Collection name…" />
@@ -628,7 +643,7 @@ function buildPanelHTML(data) {
 
 function saveClip(data, el) {
   const title = previewPanel.querySelector("#cs-title").value.trim() || "Untitled Capture";
-  const selectedCollection = previewPanel.querySelector("#cs-collection").value;
+  const selectedCollection = previewPanel.querySelector(".cs-coll-option.active")?.dataset.id || "Uncategorized";
   const newCollectionName = previewPanel.querySelector("#cs-new-collection").value.trim();
 
   const collectionId = newCollectionName || selectedCollection || "Uncategorized";
@@ -880,6 +895,13 @@ function generateCSS(data) {
     `  border-radius: ${e.borderRadius};\n` +
     `  box-shadow: ${e.boxShadow};\n` +
     `}`;
+}
+
+const _COLL_COLORS = ["#1a73e8","#f9a825","#34a853","#ea4335","#9c27b0","#00bcd4","#ff7043","#8bc34a"];
+function collPickerColor(name) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xfffffff;
+  return _COLL_COLORS[h % _COLL_COLORS.length];
 }
 
 function rgbToHex(rgb) {

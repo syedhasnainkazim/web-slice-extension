@@ -328,6 +328,71 @@
   color: #111111;
 }
 
+/* Collection picker */
+.cs-collection-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 116px;
+  overflow-y: auto;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  padding: 3px;
+  background: #fafafa;
+}
+
+.cs-collection-picker::-webkit-scrollbar { width: 3px; }
+.cs-collection-picker::-webkit-scrollbar-track { background: transparent; }
+.cs-collection-picker::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px; }
+
+.cs-coll-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #555;
+  font-size: 12px;
+  transition: background 0.1s, color 0.1s;
+  user-select: none;
+}
+
+.cs-coll-option:hover {
+  background: #f0f0f0;
+  color: #111;
+}
+
+.cs-coll-option.active {
+  background: #e8f0fe;
+  color: #1a73e8;
+  font-weight: 500;
+}
+
+.cs-coll-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.cs-coll-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cs-coll-count {
+  font-size: 10px;
+  color: #ccc;
+  flex-shrink: 0;
+}
+
+.cs-coll-option.active .cs-coll-count {
+  color: #7aabf0;
+}
+
 .cs-new-coll-btn {
   display: flex;
   align-items: center;
