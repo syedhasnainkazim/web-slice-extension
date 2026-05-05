@@ -451,7 +451,9 @@ function showPreviewPanel(el, data) {
       })),
     ];
 
-    const defaultId = result.lastCollection || "Uncategorized";
+    // Prefer last-used collection → first named collection → Uncategorized
+    const defaultId = result.lastCollection
+      || (all.length > 0 ? all[0] : "Uncategorized");
 
     picker.innerHTML = items.map((item) => `
       <div class="cs-coll-option${item.id === defaultId ? " active" : ""}" data-id="${item.id.replace(/"/g, "&quot;")}">
