@@ -3,11 +3,18 @@ let hoveredEl = null;
 let tooltip = null;
 let previewPanel = null;
 let tooltipPreviewTimer = null;
-let cachedTooltipScreenshot = null; // { el, dataUrl } — reused on click to save
+let cachedTooltipScreenshot = null;
+
+// Capture state
+let captureElements = [];
+let panelState = "none"; // "none" | "capture" | "preview"
+let dragEl = null;
+let dragStartX = 0, dragStartY = 0;
+let isDragging = false;
 
 console.log("[Decova] Content script loaded");
 
-// ─── Message listener ────────────────────────────────────────────────────────
+// ─── Message listener ─────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   console.log("[Decova] Message received:", msg.action);
@@ -26,7 +33,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
-// ─── Capture mode on/off ─────────────────────────────────────────────────────
+// ─── Capture mode on/off ──────────────────────────────────────────────────────
 
 function startCapture() {
   try {
@@ -34,8 +41,6 @@ function startCapture() {
     console.log("[Decova] Capture mode started");
     document.body.classList.add("decova-active");
 
-    // Inject a runtime <style> so the crosshair beats inline styles and
-    // any page-level !important rules (grab, text, pointer, etc.)
     if (!document.getElementById("decova-cursor-style")) {
       const s = document.createElement("style");
       s.id = "decova-cursor-style";
@@ -46,7 +51,7 @@ function startCapture() {
     createTooltip();
     document.addEventListener("mouseover", onMouseOver);
     document.addEventListener("mouseout", onMouseOut);
-    document.addEventListener("click", onClick, true);
+    document.addEventListener("mousedown", onMouseDown, true);
     document.addEventListener("keydown", onKeyDown);
     console.log("[Decova] All event listeners attached");
   } catch (err) {
@@ -62,15 +67,20 @@ function stopCapture() {
   document.getElementById("decova-cursor-style")?.remove();
   clearHighlight();
   removeTooltip();
+  closeCapturePanel(false);
+  if (dragEl) { dragEl.remove(); dragEl = null; }
   document.removeEventListener("mouseover", onMouseOver);
   document.removeEventListener("mouseout", onMouseOut);
-  document.removeEventListener("click", onClick, true);
+  document.removeEventListener("mousedown", onMouseDown, true);
+  document.removeEventListener("mousemove", onDragMove, true);
+  document.removeEventListener("mouseup", onMouseUp, true);
   document.removeEventListener("keydown", onKeyDown);
 }
 
-// ─── Tooltip ─────────────────────────────────────────────────────────────────
+// ─── Tooltip ──────────────────────────────────────────────────────────────────
 
 function createTooltip() {
+  if (tooltip) return;
   tooltip = document.createElement("div");
   tooltip.className = "decova-tooltip";
   tooltip.innerHTML = `<span class="decova-tooltip-hint">Hover an element to preview</span>`;
@@ -90,7 +100,6 @@ function updateTooltip(el) {
   const h = Math.round(rect.height);
   const hasBg = bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent";
 
-  // Show info immediately, screenshot preview loads after settle
   tooltip.innerHTML = `
     <div class="decova-tooltip-preview-wrap">
       <div class="decova-tooltip-preview-loading">Loading preview…</div>
@@ -101,16 +110,13 @@ function updateTooltip(el) {
       <span class="decova-tooltip-swatch" style="background:${textColor}"></span>
       <span class="decova-tooltip-font">${fontFamily} &middot; ${fontSize}</span>
     </div>
-    <div class="decova-tooltip-hint">Click to capture &middot; Esc to stop</div>
+    <div class="decova-tooltip-hint">Click or drag to capture &middot; Esc to stop</div>
   `;
 
-  // After 200ms debounce, take a screenshot and crop to this element
   clearTimeout(tooltipPreviewTimer);
   tooltipPreviewTimer = setTimeout(() => {
     if (!tooltip || !capturing) return;
-    // Re-read rect in case the page scrolled during the debounce
     const freshRect = el.getBoundingClientRect();
-    // Briefly hide tooltip so it doesn't appear in the shot
     tooltip.style.visibility = "hidden";
     try {
       chrome.runtime.sendMessage({ action: "captureTab" }, (response) => {
@@ -136,11 +142,7 @@ function updateTooltip(el) {
           canvas.height = dh;
           canvas.getContext("2d").drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
           const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
-
-          // Cache so the click-to-save can reuse this exact image
           cachedTooltipScreenshot = { el, dataUrl };
-
-          // Inject screenshot into the tooltip preview area
           if (!tooltip) return;
           const wrap = tooltip.querySelector(".decova-tooltip-preview-wrap");
           if (wrap) {
@@ -177,7 +179,7 @@ document.addEventListener("mousemove", (e) => {
   tooltip.style.top  = y + "px";
 });
 
-// ─── Hover highlight ─────────────────────────────────────────────────────────
+// ─── Hover highlight ──────────────────────────────────────────────────────────
 
 function onMouseOver(e) {
   const el = smartSelect(e.target);
@@ -190,7 +192,6 @@ function onMouseOver(e) {
 }
 
 function onMouseOut(e) {
-  // Don't reset if moving to another element that smart-selects to the same container
   if (e.relatedTarget) {
     const next = smartSelect(e.relatedTarget);
     if (next && next === hoveredEl) return;
@@ -208,8 +209,7 @@ function clearHighlight() {
   }
 }
 
-// ─── Smart element selection ─────────────────────────────────────────────────
-// Scores elements to find the most meaningful container to capture.
+// ─── Smart element selection ──────────────────────────────────────────────────
 
 function smartSelect(el) {
   let current = el;
@@ -232,10 +232,8 @@ function isMeaningful(el) {
   const rect = el.getBoundingClientRect();
   const styles = window.getComputedStyle(el);
 
-  // Too small → skip
   if (rect.width < 20 || rect.height < 20) return false;
 
-  // Has visible background or border → meaningful
   const bg = styles.backgroundColor;
   const border = styles.borderWidth;
   const shadow = styles.boxShadow;
@@ -246,7 +244,6 @@ function isMeaningful(el) {
 
   if (hasVisualStyle) return true;
 
-  // Has own text content (not just from children)
   if (el.childNodes.length > 0) {
     for (const node of el.childNodes) {
       if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) return true;
@@ -256,43 +253,138 @@ function isMeaningful(el) {
   return false;
 }
 
-// ─── Click to capture ────────────────────────────────────────────────────────
+// ─── Mouse drag / click capture ───────────────────────────────────────────────
 
-function onClick(e) {
+function onMouseDown(e) {
   if (!capturing) return;
-
-  // Ignore clicks on our own UI
-  if (e.target.closest(".decova-panel") || e.target.closest(".decova-tooltip")) return;
+  if (panelState !== "none") return;
+  if (e.target.closest(".dcv-panel") || e.target.closest(".decova-tooltip")) return;
 
   e.preventDefault();
   e.stopPropagation();
 
-  // Cancel any pending tooltip preview screenshot
-  clearTimeout(tooltipPreviewTimer);
+  dragStartX = e.clientX;
+  dragStartY = e.clientY;
+  isDragging = false;
 
-  const el = smartSelect(e.target);
-  if (!el) return;
+  dragEl = document.createElement("div");
+  dragEl.className = "dcv-drag-rect";
+  dragEl.style.left = e.clientX + "px";
+  dragEl.style.top = e.clientY + "px";
+  dragEl.style.width = "0px";
+  dragEl.style.height = "0px";
+  document.body.appendChild(dragEl);
 
-  clearHighlight();
-  const data = extractStyles(el);
-  captureElementScreenshot(el, (imageDataUrl) => {
-    data.image = imageDataUrl;
-    showPreviewPanel(el, data);
-  });
+  document.addEventListener("mousemove", onDragMove, true);
+  document.addEventListener("mouseup", onMouseUp, true);
 }
 
-// ─── Keyboard: Escape to exit ─────────────────────────────────────────────────
+function onDragMove(e) {
+  if (!dragEl) return;
+  const dx = e.clientX - dragStartX;
+  const dy = e.clientY - dragStartY;
+  if (!isDragging && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) isDragging = true;
+  if (!isDragging) return;
+  dragEl.style.left = (dx < 0 ? e.clientX : dragStartX) + "px";
+  dragEl.style.top  = (dy < 0 ? e.clientY : dragStartY) + "px";
+  dragEl.style.width  = Math.abs(dx) + "px";
+  dragEl.style.height = Math.abs(dy) + "px";
+}
+
+function onMouseUp(e) {
+  document.removeEventListener("mousemove", onDragMove, true);
+  document.removeEventListener("mouseup", onMouseUp, true);
+  if (dragEl) { dragEl.remove(); dragEl = null; }
+
+  const dx = Math.abs(e.clientX - dragStartX);
+  const dy = Math.abs(e.clientY - dragStartY);
+
+  clearTimeout(tooltipPreviewTimer);
+  clearHighlight();
+  removeTooltip();
+  document.removeEventListener("mouseover", onMouseOver);
+  document.removeEventListener("mouseout", onMouseOut);
+
+  if (!isDragging || (dx < 5 && dy < 5)) {
+    // Single click — capture element under cursor
+    const el = smartSelect(e.target);
+    if (!el) { resumeHover(); return; }
+    const styles = extractStyles(el);
+    captureElementScreenshot(el, (imgUrl) => {
+      captureElements = [{ el, styles, imageDataUrl: imgUrl }];
+      showCapturePanel();
+    });
+  } else {
+    // Rect drag — detect all meaningful elements in selection
+    const rx = Math.min(dragStartX, e.clientX);
+    const ry = Math.min(dragStartY, e.clientY);
+    if (dx < 10 || dy < 10) { resumeHover(); return; }
+    const detected = detectElementsInRect(rx, ry, dx, dy);
+    if (!detected.length) { resumeHover(); return; }
+    takeAreaScreenshot({ x: rx, y: ry, w: dx, h: dy }, (imgUrl) => {
+      captureElements = detected.map(el => ({ el, styles: extractStyles(el), imageDataUrl: imgUrl }));
+      showCapturePanel();
+    });
+  }
+}
+
+function detectElementsInRect(rx, ry, rw, rh) {
+  const results = [];
+  document.querySelectorAll("*").forEach(el => {
+    if (el.closest(".dcv-panel") || el.closest(".decova-tooltip")) return;
+    if (!isMeaningful(el)) return;
+    const r = el.getBoundingClientRect();
+    if (r.width < 20 || r.height < 20) return;
+    const ox = Math.max(0, Math.min(rx + rw, r.right) - Math.max(rx, r.left));
+    const oy = Math.max(0, Math.min(ry + rh, r.bottom) - Math.max(ry, r.top));
+    const overlap = ox * oy;
+    if (r.width * r.height > 0 && overlap / (r.width * r.height) >= 0.35) results.push(el);
+  });
+  // Keep only leaf elements (remove ancestors whose descendants are also selected)
+  return results
+    .filter(el => !results.some(other => other !== el && el.contains(other)))
+    .slice(0, 6);
+}
+
+function takeAreaScreenshot(rect, callback) {
+  try {
+    chrome.runtime.sendMessage({ action: "captureTab" }, (response) => {
+      if (chrome.runtime.lastError || !response?.dataUrl) { callback(null); return; }
+      const img = new Image();
+      img.onload = () => {
+        const dpr = window.devicePixelRatio || 1;
+        const sx = Math.round(rect.x * dpr);
+        const sy = Math.round(rect.y * dpr);
+        const sw = Math.round(rect.w * dpr);
+        const sh = Math.round(rect.h * dpr);
+        if (sw < 1 || sh < 1) { callback(null); return; }
+        const maxW = 600;
+        const scale = sw > maxW ? maxW / sw : 1;
+        const dw = Math.max(1, Math.round(sw * scale));
+        const dh = Math.max(1, Math.round(sh * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = dw;
+        canvas.height = dh;
+        canvas.getContext("2d").drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+        callback(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.onerror = () => callback(null);
+      img.src = response.dataUrl;
+    });
+  } catch (e) { callback(null); }
+}
+
+// ─── Keyboard ─────────────────────────────────────────────────────────────────
 
 function onKeyDown(e) {
   if (e.key === "Escape") {
     if (previewPanel) {
-      closePreviewPanel();
+      closeCapturePanel(true);
     } else {
       stopCapture();
-      try { chrome.runtime.sendMessage({ action: "captureStopped" }); } catch (e) {}
+      try { chrome.runtime.sendMessage({ action: "captureStopped" }); } catch (err) {}
     }
   }
-  // Arrow up: expand selection to parent
   if (e.key === "ArrowUp" && hoveredEl && hoveredEl.parentElement) {
     e.preventDefault();
     clearHighlight();
@@ -302,11 +394,446 @@ function onKeyDown(e) {
   }
 }
 
-// ─── Style extraction ────────────────────────────────────────────────────────
+// ─── Resume hover after panel closed ─────────────────────────────────────────
+
+function resumeHover() {
+  if (!capturing) return;
+  document.addEventListener("mouseover", onMouseOver);
+  document.addEventListener("mouseout", onMouseOut);
+  createTooltip();
+}
+
+// ─── Capture panel — CAPTURE state ───────────────────────────────────────────
+
+function showCapturePanel() {
+  panelState = "capture";
+
+  const img = captureElements.length > 0 ? captureElements[0].imageDataUrl : null;
+  const imgHtml = img
+    ? `<img class="dcv-screenshot-img" src="${img}" alt="" />`
+    : `<div style="height:100px;display:flex;align-items:center;justify-content:center;color:#888;font-size:11px;font-family:inherit;">No preview</div>`;
+
+  const badges = captureElements.map((item, i) => {
+    const b = getElBadge(item.styles.tagName);
+    return `<div class="dcv-el-badge" style="top:${6 + i * 22}px;left:6px;background:${b.color};">&lt;${b.label}&gt;</div>`;
+  }).join("");
+
+  const countText = captureElements.length === 1
+    ? "1 element captured"
+    : `${captureElements.length} elements captured`;
+
+  const html = `
+    <div class="dcv-header">
+      <span class="dcv-header-title">✦ DECOVA</span>
+      <div class="dcv-header-icons">
+        <button class="dcv-icon-btn" id="dcv-close">✕</button>
+      </div>
+    </div>
+    <div class="dcv-screenshot-wrap">
+      <div class="dcv-screenshot-inner">
+        ${imgHtml}
+        ${badges}
+      </div>
+    </div>
+    <div class="dcv-count-bar">
+      <span class="dcv-count-text">${countText}</span>
+      <div class="dcv-capture-btns">
+        <button class="dcv-btn-secondary" id="dcv-redrag">Re-drag</button>
+        <button class="dcv-btn-primary" id="dcv-confirm-capture">Confirm →</button>
+      </div>
+    </div>
+  `;
+
+  if (!previewPanel) {
+    previewPanel = document.createElement("div");
+    previewPanel.className = "dcv-panel";
+    previewPanel.innerHTML = html;
+    document.body.appendChild(previewPanel);
+    requestAnimationFrame(() => previewPanel.classList.add("visible"));
+  } else {
+    previewPanel.innerHTML = html;
+  }
+  setupPanelDrag(previewPanel);
+
+  previewPanel.querySelector("#dcv-close").addEventListener("click", () => closeCapturePanel(true));
+  previewPanel.querySelector("#dcv-redrag").addEventListener("click", () => {
+    closeCapturePanel(false);
+    resumeHover();
+  });
+  previewPanel.querySelector("#dcv-confirm-capture").addEventListener("click", transitionToPreview);
+}
+
+// ─── Capture panel — PREVIEW state ───────────────────────────────────────────
+
+function transitionToPreview() {
+  if (!previewPanel) return;
+  panelState = "preview";
+
+  const count = captureElements.length;
+  const elRows = captureElements.map((item, i) => {
+    const b = getElBadge(item.styles.tagName);
+    const codeBlock = buildCSSCodeBlock(item.styles);
+    return `
+      <div class="dcv-el-row" data-idx="${i}">
+        <div class="dcv-el-row-header">
+          <input type="checkbox" class="dcv-el-check" checked data-idx="${i}" />
+          <span class="dcv-el-expand">›</span>
+          <span class="dcv-el-spacer"></span>
+          <span class="dcv-tag-badge" style="background:${b.color}">${b.label}</span>
+        </div>
+        <div class="dcv-el-details">${codeBlock}</div>
+      </div>
+    `;
+  }).join("");
+
+  previewPanel.innerHTML = `
+    <div class="dcv-header">
+      <button class="dcv-back-btn" id="dcv-back">&lt; PREVIEW</button>
+      <div class="dcv-header-icons">
+        <button class="dcv-icon-btn" id="dcv-settings" title="Settings">⚙</button>
+        <button class="dcv-icon-btn" id="dcv-close">✕</button>
+      </div>
+    </div>
+    <div class="dcv-detected-count">${count} Item(s) Detected</div>
+    <div class="dcv-body">
+      <div class="dcv-element-list">${elRows}</div>
+      <div class="dcv-section">
+        <div class="dcv-section-label">Save Options</div>
+        <div class="dcv-save-option" data-mode="individual">
+          <input type="radio" name="dcv-save-mode" value="individual" />
+          <div>
+            <div class="dcv-option-title">Save as individual(s)</div>
+            <div class="dcv-option-desc">Individual reusable component(s)</div>
+          </div>
+        </div>
+        <div class="dcv-save-option active" data-mode="group">
+          <input type="radio" name="dcv-save-mode" value="group" checked />
+          <div>
+            <div class="dcv-option-title">Save as group</div>
+            <div class="dcv-option-desc">One clip with all elements linked together</div>
+          </div>
+        </div>
+      </div>
+      <div class="dcv-section">
+        <div class="dcv-section-label">Save To</div>
+        <button class="dcv-coll-trigger" id="dcv-coll-trigger">
+          <span id="dcv-coll-label">Select Collection</span>
+          <span class="dcv-coll-arrow">▾</span>
+        </button>
+        <div class="dcv-coll-dropdown" id="dcv-coll-dropdown"></div>
+      </div>
+    </div>
+    <div class="dcv-footer">
+      <button class="dcv-confirm-btn ready" id="dcv-save-btn">Confirm</button>
+    </div>
+  `;
+
+  setupPanelDrag(previewPanel);
+  previewPanel.querySelector("#dcv-close").addEventListener("click", () => closeCapturePanel(true));
+
+  previewPanel.querySelector("#dcv-back").addEventListener("click", () => {
+    panelState = "capture";
+    showCapturePanel();
+  });
+
+  previewPanel.querySelectorAll(".dcv-el-row-header").forEach(header => {
+    header.addEventListener("click", e => {
+      if (e.target.classList.contains("dcv-el-check")) return;
+      header.closest(".dcv-el-row").classList.toggle("expanded");
+    });
+  });
+
+  previewPanel.querySelectorAll(".dcv-save-option").forEach(opt => {
+    opt.addEventListener("click", () => {
+      previewPanel.querySelectorAll(".dcv-save-option").forEach(o => o.classList.remove("active"));
+      opt.classList.add("active");
+      opt.querySelector("input[type=radio]").checked = true;
+    });
+  });
+
+  populateCollectionDropdown();
+
+  const trigger = previewPanel.querySelector("#dcv-coll-trigger");
+  const dropdown = previewPanel.querySelector("#dcv-coll-dropdown");
+  trigger.addEventListener("click", () => {
+    const open = dropdown.classList.toggle("open");
+    trigger.classList.toggle("open", open);
+  });
+
+  previewPanel.querySelector("#dcv-save-btn").addEventListener("click", doSave);
+}
+
+function populateCollectionDropdown() {
+  try {
+    chrome.storage.local.get(["collections", "clips", "lastCollection"], (result) => {
+      if (!previewPanel) return;
+      const dropdown = previewPanel.querySelector("#dcv-coll-dropdown");
+      const trigger = previewPanel.querySelector("#dcv-coll-trigger");
+      const label = previewPanel.querySelector("#dcv-coll-label");
+      if (!dropdown || !trigger || !label) return;
+
+      const clips = result.clips || [];
+      const named = result.collections || [];
+      const collIds = clips.map(c => c.collectionId).filter(c => c && c !== "Uncategorized");
+      const all = [...new Set([...named, ...collIds])].sort();
+      const defaultId = result.lastCollection || (all.length > 0 ? all[0] : "Uncategorized");
+
+      const items = [
+        { id: "Uncategorized", name: "Uncategorized" },
+        ...all.map(name => ({ id: name, name })),
+      ];
+
+      dropdown.innerHTML =
+        `<div class="dcv-coll-item create-new" data-id="__new__">
+          <input type="checkbox" />
+          <span class="dcv-coll-item-name">Create New Collection...</span>
+        </div>` +
+        items.map(item => {
+          const checked = item.id === defaultId ? " checked" : "";
+          return `<div class="dcv-coll-item${item.id === defaultId ? " selected" : ""}" data-id="${item.id.replace(/"/g, "&quot;")}">
+            <input type="checkbox"${checked} />
+            <span class="dcv-coll-item-name">${sanitize(item.name)}</span>
+          </div>`;
+        }).join("");
+
+      const def = items.find(i => i.id === defaultId) || items[0];
+      if (def) {
+        label.textContent = def.name;
+        trigger.classList.add("selected");
+        trigger.dataset.selected = def.id;
+      }
+
+      dropdown.querySelectorAll(".dcv-coll-item").forEach(item => {
+        item.addEventListener("click", () => {
+          const id = item.dataset.id;
+          if (id === "__new__") {
+            const inp = document.createElement("input");
+            inp.className = "dcv-new-coll-input";
+            inp.placeholder = "Collection name…";
+            dropdown.appendChild(inp);
+            inp.focus();
+            inp.addEventListener("keydown", ev => {
+              if (ev.key === "Enter") {
+                const val = inp.value.trim();
+                if (!val) return;
+                inp.remove();
+                const newItem = document.createElement("div");
+                newItem.className = "dcv-coll-item";
+                newItem.dataset.id = val;
+                newItem.innerHTML = `<input type="checkbox" /><span class="dcv-coll-item-name">${sanitize(val)}</span>`;
+                dropdown.insertBefore(newItem, item.nextSibling);
+                selectCollection(newItem, val, label, trigger, dropdown);
+                newItem.addEventListener("click", () => selectCollection(newItem, val, label, trigger, dropdown));
+              }
+              if (ev.key === "Escape") { inp.remove(); }
+            });
+            return;
+          }
+          selectCollection(item, id, label, trigger, dropdown);
+        });
+      });
+    });
+  } catch (e) {}
+}
+
+function selectCollection(item, id, label, trigger, dropdown) {
+  dropdown.querySelectorAll(".dcv-coll-item").forEach(i => {
+    i.classList.remove("selected");
+    const cb = i.querySelector("input[type=checkbox]");
+    if (cb) cb.checked = false;
+  });
+  item.classList.add("selected");
+  const cb = item.querySelector("input[type=checkbox]");
+  if (cb) cb.checked = true;
+  label.textContent = item.querySelector(".dcv-coll-item-name").textContent;
+  trigger.dataset.selected = id;
+  trigger.classList.add("selected");
+  dropdown.classList.remove("open");
+  trigger.classList.remove("open");
+}
+
+function doSave() {
+  if (!previewPanel) return;
+  const trigger = previewPanel.querySelector("#dcv-coll-trigger");
+  const collectionId = trigger?.dataset.selected || "Uncategorized";
+  const saveMode = previewPanel.querySelector(".dcv-save-option.active")?.dataset.mode || "individual";
+
+  const checkedIdxs = new Set();
+  previewPanel.querySelectorAll(".dcv-el-check").forEach(cb => {
+    if (cb.checked) checkedIdxs.add(parseInt(cb.dataset.idx));
+  });
+
+  const toSave = captureElements.filter((_, i) => checkedIdxs.has(i));
+  if (!toSave.length) { showToast("No elements selected"); return; }
+
+  try {
+    chrome.storage.local.get(["clips", "collections"], (result) => {
+      const clips = result.clips || [];
+      const collections = result.collections || [];
+      if (collectionId !== "Uncategorized" && !collections.includes(collectionId)) {
+        collections.push(collectionId);
+      }
+
+      if (saveMode === "group") {
+        const first = toSave[0];
+        const { image, ...styles } = first.styles;
+        clips.push({
+          id: Date.now().toString(),
+          title: "Captured group",
+          collectionId,
+          styles: { ...styles, tagNames: toSave.flatMap(i => i.styles.tagNames || [i.styles.tagName]) },
+          sourceUrl: window.location.href,
+          savedAt: new Date().toISOString(),
+          image: first.imageDataUrl || null,
+        });
+      } else {
+        toSave.forEach((item, idx) => {
+          const { image, ...styles } = item.styles;
+          clips.push({
+            id: (Date.now() + idx).toString(),
+            title: `<${item.styles.tagName}>`,
+            collectionId,
+            styles,
+            sourceUrl: window.location.href,
+            savedAt: new Date().toISOString(),
+            image: item.imageDataUrl || null,
+          });
+        });
+      }
+
+      try {
+        chrome.storage.local.set({ clips, collections, lastCollection: collectionId }, () => {
+          const n = saveMode === "group" ? 1 : toSave.length;
+          stopCapture();
+          try { chrome.runtime.sendMessage({ action: "captureStopped" }); } catch (err) {}
+          showToast(n === 1 ? `Saved to ${collectionId} ✓` : `${n} clips saved to ${collectionId} ✓`);
+        });
+      } catch (e) { stopCapture(); try { chrome.runtime.sendMessage({ action: "captureStopped" }); } catch (err) {} }
+    });
+  } catch (e) { stopCapture(); try { chrome.runtime.sendMessage({ action: "captureStopped" }); } catch (err) {} }
+}
+
+function closeCapturePanel(resume) {
+  if (!previewPanel) {
+    if (resume) resumeHover();
+    return;
+  }
+  previewPanel._cleanupDrag?.();
+  previewPanel.classList.remove("visible");
+  const panel = previewPanel;
+  previewPanel = null;
+  panelState = "none";
+  setTimeout(() => {
+    panel?.remove();
+    if (resume) resumeHover();
+  }, 200);
+}
+
+function setupPanelDrag(panel) {
+  panel._cleanupDrag?.();
+  let panelDragging = false;
+  let offX = 0, offY = 0;
+  const header = panel.querySelector(".dcv-header");
+  if (!header) return;
+
+  function onStart(e) {
+    if (e.target.closest(".dcv-icon-btn") || e.target.closest(".dcv-back-btn")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const r = panel.getBoundingClientRect();
+    panel.style.transition = "none";
+    panel.style.top = r.top + "px";
+    panel.style.right = "auto";
+    panel.style.left = r.left + "px";
+    panel.style.transform = "none";
+    offX = e.clientX - r.left;
+    offY = e.clientY - r.top;
+    panelDragging = true;
+    header.style.cursor = "grabbing";
+  }
+
+  function onMove(e) {
+    if (!panelDragging) return;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const pw = panel.offsetWidth, ph = panel.offsetHeight;
+    panel.style.left = Math.max(0, Math.min(vw - pw, e.clientX - offX)) + "px";
+    panel.style.top  = Math.max(0, Math.min(vh - ph, e.clientY - offY)) + "px";
+  }
+
+  function onEnd() {
+    if (!panelDragging) return;
+    panelDragging = false;
+    header.style.cursor = "grab";
+  }
+
+  header.addEventListener("mousedown", onStart);
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", onEnd);
+  panel._cleanupDrag = () => {
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onEnd);
+  };
+}
+
+// ─── Element helpers ──────────────────────────────────────────────────────────
+
+function getElBadge(tagName) {
+  const t = (tagName || "").toLowerCase();
+  if (/^h[1-6]$/.test(t)) return { label: t.toUpperCase(), color: "#22c55e" };
+  if (t === "p" || t === "span" || t === "div") return { label: t, color: "#60a5fa" };
+  if (t === "section" || t === "article" || t === "nav" || t === "header" || t === "footer")
+    return { label: t, color: "#60a5fa" };
+  if (t === "button" || t === "input" || t === "form" || t === "select" || t === "textarea")
+    return { label: t, color: "#fb923c" };
+  if (t === "a") return { label: "a", color: "#a78bfa" };
+  if (t === "img" || t === "picture" || t === "svg") return { label: t, color: "#34d399" };
+  return { label: t || "tag", color: "#fb923c" };
+}
+
+
+function buildCSSCodeBlock(styles) {
+  const t = styles.typography || {};
+  const c = styles.colors || {};
+  const e = styles.effects || {};
+  const l = styles.layout || {};
+
+  function esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+  const all = [
+    t.fontSize        && ["font-size",        t.fontSize],
+    t.fontFamily      && ["font-family",       t.fontFamily.split(",")[0].trim().replace(/"/g,"'")],
+    t.fontWeight      && ["font-weight",       t.fontWeight],
+    t.lineHeight && t.lineHeight !== "normal" && ["line-height", t.lineHeight],
+    t.letterSpacing && t.letterSpacing !== "normal" && ["letter-spacing", t.letterSpacing],
+    c.text            && ["color",             rgbToHex(c.text)],
+    c.background && c.background !== "rgba(0, 0, 0, 0)" && ["background-color", rgbToHex(c.background)],
+    l.display && l.display !== "block"        && ["display",           l.display],
+    l.padding && l.padding !== "0px"          && ["padding",           l.padding],
+    l.gap && l.gap !== "normal" && l.gap !== "0px" && ["gap",          l.gap],
+    e.borderRadius && e.borderRadius !== "0px" && ["border-radius",    e.borderRadius],
+    e.borderWidth && e.borderWidth !== "0px"  && ["border-width",      e.borderWidth],
+    e.boxShadow && e.boxShadow !== "none"     && ["box-shadow",        e.boxShadow.slice(0, 80)],
+  ].filter(Boolean);
+
+  if (!all.length) return `<pre class="dcv-code-pre" style="color:#555;">/* no styles */</pre>`;
+
+  // Group into blocks of 3-4 props each
+  const tag = styles.tagName || "el";
+  const blocks = [];
+  for (let i = 0; i < all.length; i += 3) blocks.push(all.slice(i, i + 3));
+
+  return blocks.map((group, bi) => {
+    const lines = group.map(([name, val]) =>
+      `  <span style="color:#f472b6">${esc(name)}</span><span style="color:#777">:</span> <span style="color:#a3e635">${esc(val)}</span><span style="color:#777">;</span>`
+    ).join("\n");
+    return `<pre class="dcv-code-pre"><span style="color:#60a5fa">.${esc(tag)}-${bi + 1}</span> <span style="color:#777">{</span>\n${lines}\n<span style="color:#777">}</span></pre>`;
+  }).join("\n");
+}
+
+// ─── Style extraction ─────────────────────────────────────────────────────────
 
 function extractStyles(el) {
   const s = window.getComputedStyle(el);
-
   return {
     sourceUrl: window.location.href,
     htmlSnippet: el.outerHTML.slice(0, 2000),
@@ -343,585 +870,56 @@ function extractStyles(el) {
       opacity: s.opacity,
     },
     tagName: el.tagName.toLowerCase(),
+    tagNames: [
+      el.tagName.toLowerCase(),
+      ...[...new Set(Array.from(el.children).map(c => c.tagName.toLowerCase()))]
+        .filter(t => t !== el.tagName.toLowerCase())
+        .slice(0, 4),
+    ],
     classList: Array.from(el.classList).slice(0, 5),
   };
 }
 
 // ─── Screenshot capture ───────────────────────────────────────────────────────
-// Sends a captureTab request to background.js, then crops the full-viewport
-// PNG down to the element's bounding rect and returns a JPEG data URL.
 
 function captureElementScreenshot(el, callback) {
   const rect = el.getBoundingClientRect();
-
-  // Skip capture for elements too small to be useful
   if (rect.width < 4 || rect.height < 4) { callback(null); return; }
-
-  // Reuse the tooltip preview screenshot if it was taken for this element
   if (cachedTooltipScreenshot && cachedTooltipScreenshot.el === el) {
     callback(cachedTooltipScreenshot.dataUrl);
     return;
   }
-
-  // Temporarily hide the floating tooltip so it doesn't appear in the shot
   if (tooltip) tooltip.style.visibility = "hidden";
-
   try {
     chrome.runtime.sendMessage({ action: "captureTab" }, (response) => {
       if (tooltip) tooltip.style.visibility = "";
-
-      if (chrome.runtime.lastError || !response?.dataUrl) {
-        callback(null);
-        return;
-      }
-
+      if (chrome.runtime.lastError || !response?.dataUrl) { callback(null); return; }
       const img = new Image();
       img.onload = () => {
         const dpr = window.devicePixelRatio || 1;
-
-        // Source coordinates in device pixels
         const sx = Math.round(rect.left * dpr);
         const sy = Math.round(rect.top * dpr);
         const sw = Math.round(rect.width * dpr);
         const sh = Math.round(rect.height * dpr);
-
-        // Cap output width at 600px to keep storage lean
         const maxPx = 600;
         const scale = sw > maxPx ? maxPx / sw : 1;
         const dw = Math.max(1, Math.round(sw * scale));
         const dh = Math.max(1, Math.round(sh * scale));
-
         const canvas = document.createElement("canvas");
         canvas.width = dw;
         canvas.height = dh;
         canvas.getContext("2d").drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
-
         callback(canvas.toDataURL("image/jpeg", 0.85));
       };
       img.onerror = () => callback(null);
       img.src = response.dataUrl;
     });
   } catch (e) {
-    // Extension context was invalidated (e.g. extension reloaded) — skip screenshot
     if (tooltip) tooltip.style.visibility = "";
     callback(null);
   }
 }
 
-// ─── Preview panel ───────────────────────────────────────────────────────────
-
-function showPreviewPanel(el, data) {
-  if (previewPanel) closePreviewPanel();
-
-  // Freeze capture while panel is open
-  document.removeEventListener("mouseover", onMouseOver);
-  document.removeEventListener("mouseout", onMouseOut);
-
-  previewPanel = document.createElement("div");
-  previewPanel.className = "decova-panel";
-  previewPanel.innerHTML = buildPanelHTML(data);
-  document.body.appendChild(previewPanel);
-
-  // Animate in
-  requestAnimationFrame(() => previewPanel.classList.add("visible"));
-
-  // Populate collection picker from storage
-  try { chrome.storage.local.get(["collections", "clips", "lastCollection"], (result) => {
-    const picker = previewPanel.querySelector("#cs-collection-picker");
-    if (!picker) return;
-
-    const clips = result.clips || [];
-    const named = result.collections || [];
-    const clipCollections = clips
-      .map((c) => c.collectionId)
-      .filter((c) => c && c !== "Uncategorized");
-    const all = [...new Set([...named, ...clipCollections])].sort();
-
-    const uncatCount = clips.filter(
-      (c) => !c.collectionId || c.collectionId === "Uncategorized"
-    ).length;
-
-    const items = [
-      { id: "Uncategorized", name: "Uncategorized", count: uncatCount, color: "#bbb" },
-      ...all.map((name) => ({
-        id: name,
-        name,
-        count: clips.filter((c) => c.collectionId === name).length,
-        color: collPickerColor(name),
-      })),
-    ];
-
-    // Prefer last-used collection → first named collection → Uncategorized
-    const defaultId = result.lastCollection
-      || (all.length > 0 ? all[0] : "Uncategorized");
-
-    picker.innerHTML = items.map((item) => `
-      <div class="cs-coll-option${item.id === defaultId ? " active" : ""}" data-id="${item.id.replace(/"/g, "&quot;")}">
-        <span class="cs-coll-dot" style="background:${item.color}"></span>
-        <span class="cs-coll-name">${sanitize(item.name)}</span>
-        ${item.count > 0 ? `<span class="cs-coll-count">${item.count}</span>` : ""}
-      </div>
-    `).join("");
-
-    picker.querySelectorAll(".cs-coll-option").forEach((opt) => {
-      opt.addEventListener("click", () => {
-        picker.querySelectorAll(".cs-coll-option").forEach((o) => o.classList.remove("active"));
-        opt.classList.add("active");
-      });
-    });
-  }); } catch (e) { /* extension context invalidated — skip picker population */ }
-
-  // New collection button
-  previewPanel.querySelector("#cs-new-coll-btn").addEventListener("click", () => {
-    previewPanel.querySelector("#cs-new-coll-btn").style.display = "none";
-    previewPanel.querySelector("#cs-new-coll-row").style.display = "flex";
-    previewPanel.querySelector("#cs-new-collection").focus();
-  });
-
-  previewPanel.querySelector("#cs-new-coll-cancel").addEventListener("click", () => {
-    previewPanel.querySelector("#cs-new-coll-row").style.display = "none";
-    previewPanel.querySelector("#cs-new-coll-btn").style.display = "";
-    previewPanel.querySelector("#cs-new-collection").value = "";
-  });
-
-  // Draggable panel via header
-  let isDragging = false;
-  let dragOffX = 0, dragOffY = 0;
-  const panelHeader = previewPanel.querySelector(".cs-header");
-
-  function onPanelDragStart(e) {
-    if (e.target.closest(".cs-close")) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const rect = previewPanel.getBoundingClientRect();
-    previewPanel.style.transition = "none";
-    previewPanel.style.right = "auto";
-    previewPanel.style.transform = "none";
-    previewPanel.style.left = rect.left + "px";
-    previewPanel.style.top = rect.top + "px";
-    dragOffX = e.clientX - rect.left;
-    dragOffY = e.clientY - rect.top;
-    isDragging = true;
-    panelHeader.style.cursor = "grabbing";
-  }
-
-  function onPanelDragMove(e) {
-    if (!isDragging || !previewPanel) return;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const pw = previewPanel.offsetWidth;
-    const ph = previewPanel.offsetHeight;
-    previewPanel.style.left = Math.max(0, Math.min(vw - pw, e.clientX - dragOffX)) + "px";
-    previewPanel.style.top = Math.max(0, Math.min(vh - ph, e.clientY - dragOffY)) + "px";
-  }
-
-  function onPanelDragEnd() {
-    if (!isDragging) return;
-    isDragging = false;
-    if (panelHeader) panelHeader.style.cursor = "grab";
-    if (previewPanel) previewPanel.style.transition = "";
-  }
-
-  panelHeader.addEventListener("mousedown", onPanelDragStart);
-  document.addEventListener("mousemove", onPanelDragMove);
-  document.addEventListener("mouseup", onPanelDragEnd);
-
-  previewPanel._cleanupDrag = () => {
-    document.removeEventListener("mousemove", onPanelDragMove);
-    document.removeEventListener("mouseup", onPanelDragEnd);
-  };
-
-  // Close button
-  previewPanel.querySelector(".cs-close").addEventListener("click", closePreviewPanel);
-
-  // Save button
-  previewPanel.querySelector(".cs-save").addEventListener("click", () => {
-    saveClip(data, el);
-  });
-
-  // Cancel button
-  previewPanel.querySelector(".cs-cancel").addEventListener("click", closePreviewPanel);
-
-  // Copy CSS button
-  previewPanel.querySelector(".cs-copy-css").addEventListener("click", () => {
-    navigator.clipboard.writeText(generateCSS(data));
-    showToast("CSS copied!");
-  });
-
-  // Copy Tailwind button
-  previewPanel.querySelector(".cs-copy-tw").addEventListener("click", () => {
-    navigator.clipboard.writeText(generateTailwind(data));
-    showToast("Tailwind copied!");
-  });
-}
-
-function closePreviewPanel() {
-  if (!previewPanel) return;
-  previewPanel._cleanupDrag?.();
-  previewPanel.classList.remove("visible");
-  setTimeout(() => {
-    previewPanel?.remove();
-    previewPanel = null;
-  }, 200);
-  // Resume hover
-  if (capturing) {
-    document.addEventListener("mouseover", onMouseOver);
-    document.addEventListener("mouseout", onMouseOut);
-  }
-}
-
-function buildPanelHTML(data) {
-  const t = data.typography;
-  const c = data.colors;
-  const e = data.effects;
-  const l = data.layout;
-
-  const screenshotHTML = data.image
-    ? `<div class="cs-screenshot"><img class="cs-screenshot-img" src="${data.image}" alt="" /></div>`
-    : "";
-
-  return `
-    <div class="cs-header">
-      <span class="cs-title">✦ Decova</span>
-      <button class="cs-close">✕</button>
-    </div>
-
-    ${screenshotHTML}
-
-    <div class="cs-body">
-      <div class="cs-section">
-        <div class="cs-section-label">Typography</div>
-        <div class="cs-row"><span class="cs-key">Font</span><span class="cs-val">${sanitize(t.fontFamily.split(",")[0])}</span></div>
-        <div class="cs-row"><span class="cs-key">Size</span><span class="cs-val">${sanitize(t.fontSize)}</span></div>
-        <div class="cs-row"><span class="cs-key">Weight</span><span class="cs-val">${sanitize(t.fontWeight)}</span></div>
-        <div class="cs-row"><span class="cs-key">Line height</span><span class="cs-val">${sanitize(t.lineHeight)}</span></div>
-      </div>
-
-      <div class="cs-section">
-        <div class="cs-section-label">Colors</div>
-        <div class="cs-row">
-          <span class="cs-key">Text</span>
-          <span class="cs-val cs-color-val">
-            <span class="cs-swatch" style="background:${c.text}"></span>
-            ${sanitize(rgbToHex(c.text))}
-          </span>
-        </div>
-        <div class="cs-row">
-          <span class="cs-key">Background</span>
-          <span class="cs-val cs-color-val">
-            <span class="cs-swatch" style="background:${c.background}"></span>
-            ${sanitize(rgbToHex(c.background))}
-          </span>
-        </div>
-      </div>
-
-      <div class="cs-section">
-        <div class="cs-section-label">Effects</div>
-        <div class="cs-row"><span class="cs-key">Border radius</span><span class="cs-val">${sanitize(e.borderRadius)}</span></div>
-        <div class="cs-row"><span class="cs-key">Shadow</span><span class="cs-val cs-truncate">${e.boxShadow === "none" ? "none" : sanitize(e.boxShadow.slice(0, 30)) + "…"}</span></div>
-        <div class="cs-row"><span class="cs-key">Padding</span><span class="cs-val">${sanitize(l.padding)}</span></div>
-      </div>
-
-      <div class="cs-section">
-        <div class="cs-section-label">Export</div>
-        <div class="cs-export-row">
-          <button class="cs-copy-css">Copy CSS</button>
-          <button class="cs-copy-tw">Copy Tailwind</button>
-        </div>
-      </div>
-
-      <div class="cs-section cs-save-section">
-        <div class="cs-section-label">Save To</div>
-        <input class="cs-input" id="cs-title" placeholder="Name this capture…" />
-        <div class="cs-collection-picker" id="cs-collection-picker">
-          <div class="cs-coll-option active" data-id="Uncategorized">
-            <span class="cs-coll-dot" style="background:#bbb"></span>
-            <span class="cs-coll-name">Uncategorized</span>
-          </div>
-        </div>
-        <button class="cs-new-coll-btn" id="cs-new-coll-btn">＋ New collection</button>
-        <div class="cs-new-coll-row" id="cs-new-coll-row" style="display:none;">
-          <input class="cs-input cs-new-collection-input" id="cs-new-collection" placeholder="Collection name…" />
-          <button class="cs-new-coll-cancel" id="cs-new-coll-cancel">✕</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="cs-footer">
-      <button class="cs-cancel">Cancel</button>
-      <button class="cs-save">Save</button>
-    </div>
-  `;
-}
-
-// ─── Save clip ────────────────────────────────────────────────────────────────
-
-function saveClip(data, el) {
-  const title = previewPanel.querySelector("#cs-title").value.trim() || "Untitled Capture";
-  const selectedCollection = previewPanel.querySelector(".cs-coll-option.active")?.dataset.id || "Uncategorized";
-  const newCollectionName = previewPanel.querySelector("#cs-new-collection").value.trim();
-
-  const collectionId = newCollectionName || selectedCollection || "Uncategorized";
-
-  const { image, ...styles } = data;
-
-  const clip = {
-    id: Date.now().toString(),
-    title,
-    collectionId,
-    styles,
-    sourceUrl: data.sourceUrl,
-    savedAt: new Date().toISOString(),
-    image: image || null,
-  };
-
-  try {
-    chrome.storage.local.get(["clips", "collections"], (result) => {
-      const clips = result.clips || [];
-      const collections = result.collections || [];
-
-      if (newCollectionName && !collections.includes(newCollectionName)) {
-        collections.push(newCollectionName);
-      }
-
-      clips.push(clip);
-      try {
-        chrome.storage.local.set({ clips, collections, lastCollection: collectionId }, () => {
-          closePreviewPanel();
-          showToast("Saved to " + collectionId + " ✓");
-        });
-      } catch (e) { closePreviewPanel(); }
-    });
-  } catch (e) { closePreviewPanel(); }
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-// ─── Tailwind generator ──────────────────────────────────────────────────────
-
-// Tailwind spacing scale: px value → scale token
-const TW_SPACING = {
-  0: "0", 1: "px", 2: "0.5", 4: "1", 6: "1.5", 8: "2", 10: "2.5",
-  12: "3", 14: "3.5", 16: "4", 20: "5", 24: "6", 28: "7", 32: "8",
-  36: "9", 40: "10", 44: "11", 48: "12", 56: "14", 64: "16", 80: "20",
-  96: "24", 112: "28", 128: "32", 144: "36", 160: "40", 176: "44",
-  192: "48", 208: "52", 224: "56", 240: "60", 256: "64", 288: "72",
-  320: "80", 384: "96",
-};
-
-function twSpacing(px) {
-  const n = Math.round(parseFloat(px));
-  if (isNaN(n)) return null;
-  return TW_SPACING[n] !== undefined ? TW_SPACING[n] : `[${px}]`;
-}
-
-function twSides(value) {
-  const p = (value || "").trim().split(/\s+/).filter(Boolean);
-  if (!p.length) return null;
-  if (p.length === 1) return { t: p[0], r: p[0], b: p[0], l: p[0] };
-  if (p.length === 2) return { t: p[0], r: p[1], b: p[0], l: p[1] };
-  if (p.length === 3) return { t: p[0], r: p[1], b: p[2], l: p[1] };
-  return { t: p[0], r: p[1], b: p[2], l: p[3] };
-}
-
-function twSpacingClasses(value, pfx) {
-  const s = twSides(value);
-  if (!s) return [];
-  if (["t","r","b","l"].every(k => parseFloat(s[k]) === 0)) return [];
-  const t = twSpacing(s.t), r = twSpacing(s.r),
-        b = twSpacing(s.b), l = twSpacing(s.l);
-  if (t === r && r === b && b === l) return [`${pfx}-${t}`];
-  if (t === b && r === l) {
-    const out = [];
-    if (t !== "0") out.push(`${pfx}y-${t}`);
-    if (r !== "0") out.push(`${pfx}x-${r}`);
-    return out;
-  }
-  return [
-    t !== "0" ? `${pfx}t-${t}` : null,
-    r !== "0" ? `${pfx}r-${r}` : null,
-    b !== "0" ? `${pfx}b-${b}` : null,
-    l !== "0" ? `${pfx}l-${l}` : null,
-  ].filter(Boolean);
-}
-
-function twColorClass(prefix, rgb) {
-  const hex = rgbToHex(rgb);
-  if (!hex || hex === "transparent") return null;
-  if (hex === "#ffffff") return `${prefix}-white`;
-  if (hex === "#000000") return `${prefix}-black`;
-  return `${prefix}-[${hex}]`;
-}
-
-function twShadow(shadow) {
-  if (!shadow || shadow === "none") return null;
-  const m = shadow.match(/\d+px\s+\d+px\s+(\d+)px/);
-  if (!m) return `shadow-[${shadow.replace(/\s+/g,"_")}]`;
-  const blur = parseInt(m[1]);
-  if (blur <= 2)  return "shadow-sm";
-  if (blur <= 6)  return "shadow";
-  if (blur <= 10) return "shadow-md";
-  if (blur <= 15) return "shadow-lg";
-  if (blur <= 25) return "shadow-xl";
-  return "shadow-2xl";
-}
-
-function twLineHeight(lh, fontSize) {
-  if (!lh || lh === "normal") return null;
-  let ratio = parseFloat(lh);
-  if (lh.endsWith("px") && fontSize && fontSize.endsWith("px")) {
-    ratio = parseFloat(lh) / parseFloat(fontSize);
-  }
-  if (isNaN(ratio)) return null;
-  const r = Math.round(ratio * 1000) / 1000;
-  const map = { 1: "leading-none", 1.25: "leading-tight", 1.375: "leading-snug",
-                1.5: "leading-normal", 1.625: "leading-relaxed", 2: "leading-loose" };
-  return map[r] || null;
-}
-
-function generateTailwind(data) {
-  const t = data.typography || {};
-  const c = data.colors    || {};
-  const e = data.effects   || {};
-  const l = data.layout    || {};
-  const cls = [];
-
-  // Display
-  const displayMap = { block:"block", "inline-block":"inline-block", inline:"inline",
-    flex:"flex", "inline-flex":"inline-flex", grid:"grid", "inline-grid":"inline-grid", none:"hidden" };
-  if (l.display && displayMap[l.display]) cls.push(displayMap[l.display]);
-
-  // Flex layout
-  if (l.display === "flex" || l.display === "inline-flex") {
-    const dirMap = { row:"flex-row", column:"flex-col",
-      "row-reverse":"flex-row-reverse", "column-reverse":"flex-col-reverse" };
-    if (l.flexDirection && dirMap[l.flexDirection] && l.flexDirection !== "row")
-      cls.push(dirMap[l.flexDirection]);
-
-    const alignMap = { "flex-start":"items-start", "flex-end":"items-end",
-      center:"items-center", baseline:"items-baseline", stretch:"items-stretch" };
-    if (l.alignItems && alignMap[l.alignItems]) cls.push(alignMap[l.alignItems]);
-
-    const justifyMap = { "flex-start":"justify-start", "flex-end":"justify-end",
-      center:"justify-center", "space-between":"justify-between",
-      "space-around":"justify-around", "space-evenly":"justify-evenly" };
-    if (l.justifyContent && justifyMap[l.justifyContent] && l.justifyContent !== "normal")
-      cls.push(justifyMap[l.justifyContent]);
-  }
-
-  // Gap
-  if (l.gap && l.gap !== "normal" && l.gap !== "0px") {
-    const g = twSpacing(l.gap);
-    if (g) cls.push(`gap-${g}`);
-  }
-
-  // Padding / margin
-  twSpacingClasses(l.padding, "p").forEach(v => cls.push(v));
-  twSpacingClasses(l.margin,  "m").forEach(v => cls.push(v));
-
-  // Font family (generic bucket)
-  const fname = (t.fontFamily || "").split(",")[0].replace(/"/g,"").trim().toLowerCase();
-  if (fname.includes("mono") || fname.includes("courier") || fname.includes("consolas")) {
-    cls.push("font-mono");
-  } else if (fname.includes("serif") && !fname.includes("sans")) {
-    cls.push("font-serif");
-  } else if (fname) {
-    cls.push("font-sans");
-  }
-
-  // Font size
-  const sizeMap = { "12px":"text-xs", "14px":"text-sm", "16px":"text-base",
-    "18px":"text-lg", "20px":"text-xl", "24px":"text-2xl", "30px":"text-3xl",
-    "36px":"text-4xl", "48px":"text-5xl", "60px":"text-6xl",
-    "72px":"text-7xl", "96px":"text-8xl", "128px":"text-9xl" };
-  if (t.fontSize) cls.push(sizeMap[t.fontSize] || `text-[${t.fontSize}]`);
-
-  // Font weight
-  const weightMap = { "100":"font-thin", "200":"font-extralight", "300":"font-light",
-    "400":"font-normal", "500":"font-medium", "600":"font-semibold",
-    "700":"font-bold", "800":"font-extrabold", "900":"font-black" };
-  if (t.fontWeight && weightMap[t.fontWeight] && t.fontWeight !== "400")
-    cls.push(weightMap[t.fontWeight]);
-
-  // Line height
-  const lh = twLineHeight(t.lineHeight, t.fontSize);
-  if (lh) cls.push(lh);
-
-  // Letter spacing
-  const trackMap = { "-0.05em":"tracking-tighter", "-0.025em":"tracking-tight",
-    "0.025em":"tracking-wide", "0.05em":"tracking-wider", "0.1em":"tracking-widest" };
-  if (t.letterSpacing && trackMap[t.letterSpacing]) cls.push(trackMap[t.letterSpacing]);
-
-  // Text align
-  const alignMap2 = { left:"text-left", center:"text-center", right:"text-right", justify:"text-justify" };
-  if (t.textAlign && alignMap2[t.textAlign] && t.textAlign !== "left")
-    cls.push(alignMap2[t.textAlign]);
-
-  // Colors
-  const textCls = twColorClass("text", c.text);
-  if (textCls) cls.push(textCls);
-
-  const isTransparentBg = !c.background ||
-    c.background === "rgba(0, 0, 0, 0)" || c.background === "transparent";
-  if (!isTransparentBg) {
-    const bgCls = twColorClass("bg", c.background);
-    if (bgCls) cls.push(bgCls);
-  }
-
-  // Border radius
-  const radiusMap = { "0px":"rounded-none", "2px":"rounded-sm", "4px":"rounded",
-    "6px":"rounded-md", "8px":"rounded-lg", "12px":"rounded-xl",
-    "16px":"rounded-2xl", "24px":"rounded-3xl", "9999px":"rounded-full", "50%":"rounded-full" };
-  if (e.borderRadius && e.borderRadius !== "0px")
-    cls.push(radiusMap[e.borderRadius] || `rounded-[${e.borderRadius}]`);
-
-  // Border width + color
-  if (e.borderWidth && e.borderWidth !== "0px") {
-    const bwMap = { "1px":"border", "2px":"border-2", "4px":"border-4", "8px":"border-8" };
-    cls.push(bwMap[e.borderWidth] || `border-[${e.borderWidth}]`);
-    const bCls = twColorClass("border", c.border);
-    if (bCls) cls.push(bCls);
-  }
-
-  // Box shadow
-  const sh = twShadow(e.boxShadow);
-  if (sh) cls.push(sh);
-
-  // Opacity
-  if (e.opacity && e.opacity !== "1") {
-    const opMap = { "0":"opacity-0","0.05":"opacity-5","0.1":"opacity-10",
-      "0.2":"opacity-20","0.25":"opacity-25","0.3":"opacity-30","0.4":"opacity-40",
-      "0.5":"opacity-50","0.6":"opacity-60","0.7":"opacity-70","0.75":"opacity-75",
-      "0.8":"opacity-80","0.9":"opacity-90","0.95":"opacity-95" };
-    cls.push(opMap[e.opacity] || `opacity-[${e.opacity}]`);
-  }
-
-  return cls.join(" ");
-}
-
-function generateCSS(data) {
-  const t = data.typography;
-  const c = data.colors;
-  const e = data.effects;
-  const l = data.layout;
-  return `.element {\n` +
-    `  font-family: ${t.fontFamily};\n` +
-    `  font-size: ${t.fontSize};\n` +
-    `  font-weight: ${t.fontWeight};\n` +
-    `  color: ${rgbToHex(c.text)};\n` +
-    `  background-color: ${rgbToHex(c.background)};\n` +
-    `  padding: ${l.padding};\n` +
-    `  border-radius: ${e.borderRadius};\n` +
-    `  box-shadow: ${e.boxShadow};\n` +
-    `}`;
-}
-
-const _COLL_COLORS = ["#1a73e8","#f9a825","#34a853","#ea4335","#9c27b0","#00bcd4","#ff7043","#8bc34a"];
-function collPickerColor(name) {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xfffffff;
-  return _COLL_COLORS[h % _COLL_COLORS.length];
-}
 
 function rgbToHex(rgb) {
   if (!rgb || rgb === "transparent" || rgb === "rgba(0, 0, 0, 0)") return "transparent";
@@ -933,7 +931,7 @@ function rgbToHex(rgb) {
 
 function sanitize(str) {
   if (!str) return "—";
-  return str.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return String(str).replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function showToast(msg) {

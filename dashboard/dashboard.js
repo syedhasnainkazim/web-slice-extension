@@ -5,8 +5,12 @@ let collections = [];
 let activeCollection = "all";
 let activeType = "all";
 let searchQuery = "";
+let selectedIds = new Set();
+let sortOrder = "newest";
+let showAllTags = false;
 
 const COLLECTION_COLORS = ["#1a73e8", "#f9a825", "#34a853", "#ea4335", "#9c27b0", "#00bcd4", "#ff7043", "#8bc34a"];
+const TAG_COLORS = ["#f9a825", "#34a853", "#1a73e8", "#ea4335", "#9c27b0", "#ff7043", "#00bcd4", "#8bc34a"];
 
 function getCollectionColor(name) {
   let hash = 0;
@@ -14,6 +18,14 @@ function getCollectionColor(name) {
     hash = (hash * 31 + name.charCodeAt(i)) & 0xfffffff;
   }
   return COLLECTION_COLORS[hash % COLLECTION_COLORS.length];
+}
+
+function getTagColor(name) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) & 0xfffffff;
+  }
+  return TAG_COLORS[hash % TAG_COLORS.length];
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -55,11 +67,13 @@ function renderSidebar() {
 
   const recentCutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const recentCount = allClips.filter((c) => new Date(c.savedAt).getTime() > recentCutoff).length;
+  const favCount = allClips.filter((c) => c.favorited).length;
   const uncatCount = allClips.filter((c) => !c.collectionId || c.collectionId === "Uncategorized").length;
 
   const viewItems = [
     { id: "all", name: "All Clips", count: allClips.length },
-    { id: "recent", name: "Recent", count: recentCount },
+    { id: "recent", name: "Recently Saved", count: recentCount },
+    { id: "favorites", name: "Favorites", count: favCount },
   ];
 
   const collectionItems = [
@@ -73,6 +87,17 @@ function renderSidebar() {
       color: getCollectionColor(name),
     })),
   ];
+
+  // Tags section
+  const tagCounts = {};
+  allClips.forEach((c) => {
+    const tags = c.styles?.tagNames || (c.styles?.tagName ? [c.styles.tagName] : []);
+    tags.forEach((t) => { tagCounts[t] = (tagCounts[t] || 0) + 1; });
+  });
+  const allTagsSorted = Object.entries(tagCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, count]) => ({ name, count }));
+  const visibleTags = showAllTags ? allTagsSorted : allTagsSorted.slice(0, 3);
 
   const renderItem = (item, showDot = false) => `
     <div class="collection-item ${activeCollection === item.id ? "active" : ""}" data-id="${escAttr(item.id)}">
@@ -97,6 +122,24 @@ function renderSidebar() {
         New Collection
       </button>
     </div>
+
+    ${allTagsSorted.length > 0 ? `
+    <div class="sidebar-section">
+      <div class="nav-label">Tags</div>
+      ${visibleTags.map((t) => `
+        <div class="sidebar-tag-item ${activeType === t.name ? "active" : ""}" data-tag="${escAttr(t.name)}">
+          <span class="sidebar-tag-dot" style="background:${escAttr(getTagColor(t.name))};"></span>
+          <span class="sidebar-tag-name">&lt; ${escHtml(t.name)} &gt;</span>
+          <span class="sidebar-tag-count">${t.count}</span>
+        </div>
+      `).join("")}
+      ${allTagsSorted.length > 3 ? `
+        <button class="view-more-tags" id="view-more-tags">
+          ${showAllTags ? "Show less" : `view more (${allTagsSorted.length - 3})`}
+        </button>
+      ` : ""}
+    </div>
+    ` : ""}
   `;
 
   nav.querySelectorAll(".collection-item").forEach((el) => {
@@ -105,9 +148,27 @@ function renderSidebar() {
       const titleEl = document.getElementById("page-title");
       if (titleEl) titleEl.textContent = el.querySelector(".collection-name").textContent;
       renderSidebar();
+      renderTypeFilters();
       renderGrid();
     });
   });
+
+  nav.querySelectorAll(".sidebar-tag-item").forEach((el) => {
+    el.addEventListener("click", () => {
+      activeType = activeType === el.dataset.tag ? "all" : el.dataset.tag;
+      renderSidebar();
+      renderTypeFilters();
+      renderGrid();
+    });
+  });
+
+  const viewMoreBtn = document.getElementById("view-more-tags");
+  if (viewMoreBtn) {
+    viewMoreBtn.addEventListener("click", () => {
+      showAllTags = !showAllTags;
+      renderSidebar();
+    });
+  }
 
   const newBtn = document.getElementById("new-collection-btn");
   if (newBtn) {
@@ -156,28 +217,48 @@ function renderTypeFilters() {
   const container = document.getElementById("type-filters");
   if (!container) return;
 
-  const types = [...new Set(allClips.map((c) => c.styles?.tagName).filter(Boolean))].sort();
-
-  if (types.length === 0) {
-    container.innerHTML = "";
-    container.style.display = "none";
-    return;
-  }
+  const types = [...new Set(allClips.flatMap((c) => c.styles?.tagNames || (c.styles?.tagName ? [c.styles.tagName] : [])))].sort();
+  const favCount = allClips.filter((c) => c.favorited).length;
 
   container.style.display = "";
 
-  const items = [{ id: "all", label: "All" }, ...types.map((t) => ({ id: t, label: t }))];
+  const allActive = activeType === "all" && activeCollection !== "favorites";
+  const favActive = activeCollection === "favorites";
+
+  const items = [
+    { id: "all", label: "All", active: allActive, special: false },
+    ...(favCount > 0 ? [{ id: "favorites", label: "Favorites", active: favActive, special: true }] : []),
+    ...types.map((t) => ({ id: t, label: t, active: activeType === t && !favActive, special: false })),
+  ];
 
   container.innerHTML = items
-    .map(
-      (t) => `<button class="type-pill ${activeType === t.id ? "active" : ""}" data-type="${escAttr(t.id)}">${escHtml(t.label)}</button>`
-    )
+    .map((t) => `<button class="type-pill ${t.active ? "active" : ""}" data-type="${escAttr(t.id)}" data-special="${t.special}">${escHtml(t.label)}</button>`)
     .join("");
 
   container.querySelectorAll(".type-pill").forEach((btn) => {
     btn.addEventListener("click", () => {
-      activeType = btn.dataset.type;
+      if (btn.dataset.special === "true") {
+        activeCollection = "favorites";
+        activeType = "all";
+        const titleEl = document.getElementById("page-title");
+        if (titleEl) titleEl.textContent = "Favorites";
+      } else if (btn.dataset.type === "all") {
+        activeType = "all";
+        if (activeCollection === "favorites") {
+          activeCollection = "all";
+          const titleEl = document.getElementById("page-title");
+          if (titleEl) titleEl.textContent = "All Clips";
+        }
+      } else {
+        activeType = btn.dataset.type;
+        if (activeCollection === "favorites") {
+          activeCollection = "all";
+          const titleEl = document.getElementById("page-title");
+          if (titleEl) titleEl.textContent = "All Clips";
+        }
+      }
       renderTypeFilters();
+      renderSidebar();
       renderGrid();
     });
   });
@@ -190,6 +271,15 @@ document.getElementById("search-input").addEventListener("input", (e) => {
   renderGrid();
 });
 
+document.getElementById("sort-btn")?.addEventListener("click", () => {
+  const orders = ["newest", "oldest", "alpha"];
+  sortOrder = orders[(orders.indexOf(sortOrder) + 1) % orders.length];
+  const labels = { newest: "Newest", oldest: "Oldest", alpha: "A–Z" };
+  const labelEl = document.getElementById("sort-label");
+  if (labelEl) labelEl.textContent = labels[sortOrder];
+  renderGrid();
+});
+
 // ── Grid ──────────────────────────────────────────────────────────────────────
 
 function renderGrid() {
@@ -197,19 +287,32 @@ function renderGrid() {
   const emptyState = document.getElementById("empty-state");
   const pageCount = document.getElementById("page-count");
 
-  let clips = [...allClips].reverse(); // most recent first
+  let clips = [...allClips];
 
+  // Sort
+  if (sortOrder === "newest") clips.reverse();
+  else if (sortOrder === "alpha") clips.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+  // "oldest" keeps insertion order
+
+  // Collection / view filter
   if (activeCollection === "recent") {
     const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
     clips = clips.filter((c) => new Date(c.savedAt).getTime() > cutoff);
+  } else if (activeCollection === "favorites") {
+    clips = clips.filter((c) => c.favorited);
   } else if (activeCollection !== "all") {
     clips = clips.filter((c) => (c.collectionId || "Uncategorized") === activeCollection);
   }
 
+  // Type filter
   if (activeType !== "all") {
-    clips = clips.filter((c) => c.styles?.tagName === activeType);
+    clips = clips.filter((c) => {
+      const tags = c.styles?.tagNames || (c.styles?.tagName ? [c.styles.tagName] : []);
+      return tags.includes(activeType);
+    });
   }
 
+  // Search
   if (searchQuery) {
     clips = clips.filter(
       (c) =>
@@ -221,6 +324,7 @@ function renderGrid() {
   }
 
   pageCount.textContent = clips.length;
+  renderSelectionBar();
 
   if (clips.length === 0) {
     grid.style.display = "none";
@@ -232,12 +336,42 @@ function renderGrid() {
   emptyState.style.display = "none";
   grid.innerHTML = clips.map(buildCardHTML).join("");
 
+  // Fall back to font preview if a saved screenshot fails to load
+  grid.querySelectorAll(".card-screenshot").forEach((img) => {
+    img.addEventListener("error", () => {
+      const card = img.closest(".card");
+      if (!card) return;
+      const clip = allClips.find((c) => c.id === card.dataset.id);
+      const preview = img.parentElement;
+      const fontName = (clip?.styles?.typography?.fontFamily || "").split(",")[0].replace(/"/g, "").trim() || "sans-serif";
+      const bg = clip?.styles?.colors?.background || "#f5f5f5";
+      const textColor = clip?.styles?.colors?.text || "#555";
+      img.remove();
+      preview.style.background = bg;
+      preview.style.color = textColor;
+      preview.insertAdjacentHTML("afterbegin", `<div class="card-preview-inner"><span class="card-preview-font" style="font-family:${escAttr(fontName)}">${escHtml(fontName)}</span></div>`);
+    });
+  });
+
   grid.querySelectorAll(".card").forEach((card) => {
     const id = card.dataset.id;
     const clip = allClips.find((c) => c.id === id);
+    if (!clip) return;
+
+    card.querySelector(".card-check")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleSelect(id);
+    });
+
+    card.querySelector(".card-star")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleFavorite(id);
+    });
 
     card.addEventListener("click", (e) => {
-      if (!e.target.closest(".card-btn")) openModal(clip);
+      if (!e.target.closest(".card-btn") && !e.target.closest(".card-check") && !e.target.closest(".card-star")) {
+        openModal(clip);
+      }
     });
 
     card.querySelector(".card-btn.copy")?.addEventListener("click", (e) => {
@@ -275,15 +409,13 @@ function buildCardHTML(clip) {
   const domain = getDomain(clip.sourceUrl);
   const timeAgo = getTimeAgo(clip.savedAt);
   const collection = clip.collectionId || "Uncategorized";
-  const tagName = clip.styles?.tagName || "div";
+  const tagNames = clip.styles?.tagNames || (clip.styles?.tagName ? [clip.styles.tagName] : ["div"]);
+  const isSelected = selectedIds.has(clip.id);
+  const isFavorited = !!clip.favorited;
 
-  // Color swatches (bg + text)
   const swatches = [bg, textColor]
     .filter((c) => c && c !== "rgba(0, 0, 0, 0)" && c !== "transparent" && c !== "#f5f5f5")
-    .map(
-      (c) =>
-        `<span class="card-swatch" style="background:${escAttr(c)};"></span>`
-    )
+    .map((c) => `<span class="card-swatch" style="background:${escAttr(c)};"></span>`)
     .join("");
 
   const previewHTML = clip.image
@@ -298,16 +430,24 @@ function buildCardHTML(clip) {
     ? ""
     : `style="background:${escAttr(bg)}; color:${escAttr(textColor)};"`;
 
+  const tagBadges = tagNames
+    .map((t) => `<span class="tag tag-element"><span class="tag-dot" style="background:${escAttr(getTagColor(t))};"></span>&lt; ${escHtml(t)} &gt;</span>`)
+    .join("");
+
   return `
-    <div class="card" data-id="${escAttr(clip.id)}">
+    <div class="card${isSelected ? " selected" : ""}" data-id="${escAttr(clip.id)}">
       <div class="card-preview" ${previewStyle}>
         ${previewHTML}
+        <div class="card-check"></div>
       </div>
       <div class="card-body">
-        <div class="card-title">${escHtml(clip.title || "Untitled Capture")}</div>
+        <div class="card-title-row">
+          <div class="card-title">${escHtml(clip.title || "Untitled Capture")}</div>
+          <button class="card-star${isFavorited ? " active" : ""}" title="${isFavorited ? "Remove from favorites" : "Add to favorites"}">★</button>
+        </div>
         <div class="card-tags">
           <span class="tag tag-collection">${escHtml(collection)}</span>
-          <span class="tag tag-element">${escHtml(tagName)}</span>
+          ${tagBadges}
         </div>
         <div class="card-url">${escHtml(domain)}</div>
       </div>
@@ -327,6 +467,164 @@ function deleteClip(id) {
   chrome.storage.local.get(["clips"], (result) => {
     const clips = (result.clips || []).filter((c) => c.id !== id);
     chrome.storage.local.set({ clips }, loadData);
+  });
+}
+
+// ── Favorites ─────────────────────────────────────────────────────────────────
+
+function toggleFavorite(id) {
+  chrome.storage.local.get(["clips"], (result) => {
+    const clips = result.clips || [];
+    const clip = clips.find((c) => c.id === id);
+    if (clip) {
+      clip.favorited = !clip.favorited;
+      chrome.storage.local.set({ clips }, loadData);
+    }
+  });
+}
+
+// ── Multi-select ──────────────────────────────────────────────────────────────
+
+function toggleSelect(id) {
+  if (selectedIds.has(id)) {
+    selectedIds.delete(id);
+  } else {
+    selectedIds.add(id);
+  }
+  const card = document.querySelector(`.card[data-id="${CSS.escape(id)}"]`);
+  if (card) {
+    card.classList.toggle("selected", selectedIds.has(id));
+  }
+  renderSelectionBar();
+}
+
+function selectAll() {
+  document.querySelectorAll(".card").forEach((card) => {
+    selectedIds.add(card.dataset.id);
+    card.classList.add("selected");
+  });
+  renderSelectionBar();
+}
+
+function clearSelection() {
+  selectedIds.clear();
+  document.querySelectorAll(".card.selected").forEach((card) => {
+    card.classList.remove("selected");
+  });
+  renderSelectionBar();
+}
+
+function renderSelectionBar() {
+  const countEl = document.getElementById("sel-count");
+  const actionsEl = document.getElementById("sel-actions");
+  if (!countEl || !actionsEl) return;
+
+  const count = selectedIds.size;
+  countEl.textContent = `${count} Clip${count !== 1 ? "s" : ""} Selected`;
+  countEl.classList.toggle("has-selection", count > 0);
+
+  const hasSelection = count > 0;
+  actionsEl.innerHTML = `
+    ${hasSelection
+      ? `<button class="sel-btn" id="btn-deselect">Deselect All</button>`
+      : `<button class="sel-btn" id="btn-select-all">Select All</button>`
+    }
+    <button class="sel-btn" id="btn-move-to" ${hasSelection ? "" : "disabled"}>Move To</button>
+    <button class="sel-btn" id="btn-export" ${hasSelection ? "" : "disabled"}>Export</button>
+    <button class="sel-btn danger" id="btn-bulk-delete" ${hasSelection ? "" : "disabled"}>Delete</button>
+  `;
+  if (hasSelection) {
+    document.getElementById("btn-deselect").addEventListener("click", clearSelection);
+    document.getElementById("btn-move-to").addEventListener("click", showMoveToDialog);
+    document.getElementById("btn-export").addEventListener("click", exportSelected);
+    document.getElementById("btn-bulk-delete").addEventListener("click", bulkDelete);
+  } else {
+    document.getElementById("btn-select-all").addEventListener("click", selectAll);
+  }
+}
+
+function showMoveToDialog() {
+  const existing = document.getElementById("move-to-dialog");
+  if (existing) { existing.remove(); return; }
+
+  const dialog = document.createElement("div");
+  dialog.id = "move-to-dialog";
+  dialog.className = "move-to-dialog";
+
+  const collOptions = [
+    { id: "Uncategorized", color: "#bbb" },
+    ...collections.map((name) => ({ id: name, color: getCollectionColor(name) })),
+  ];
+
+  dialog.innerHTML = `
+    <div class="move-to-title">Move to collection</div>
+    ${collOptions.map((c) => `
+      <div class="move-to-option" data-coll="${escAttr(c.id)}">
+        <span class="move-to-dot" style="background:${escAttr(c.color)};"></span>
+        ${escHtml(c.id)}
+      </div>
+    `).join("")}
+  `;
+
+  const btn = document.getElementById("btn-move-to");
+  if (btn) {
+    const rect = btn.getBoundingClientRect();
+    dialog.style.top = (rect.bottom + 6) + "px";
+    dialog.style.left = rect.left + "px";
+  }
+
+  document.body.appendChild(dialog);
+
+  dialog.querySelectorAll(".move-to-option").forEach((opt) => {
+    opt.addEventListener("click", (e) => {
+      e.stopPropagation();
+      moveToCollection(opt.dataset.coll);
+      dialog.remove();
+    });
+  });
+
+  setTimeout(() => {
+    document.addEventListener("click", () => dialog?.remove(), { once: true });
+  }, 0);
+}
+
+function moveToCollection(collectionId) {
+  chrome.storage.local.get(["clips"], (result) => {
+    const clips = result.clips || [];
+    const ids = new Set(selectedIds);
+    clips.forEach((c) => { if (ids.has(c.id)) c.collectionId = collectionId; });
+    chrome.storage.local.set({ clips }, () => {
+      clearSelection();
+      loadData();
+      showToast(`Moved to ${collectionId}`);
+    });
+  });
+}
+
+function exportSelected() {
+  const toExport = allClips.filter((c) => selectedIds.has(c.id));
+  const json = JSON.stringify(toExport, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `decova-export-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast(`Exported ${toExport.length} clip${toExport.length !== 1 ? "s" : ""}`);
+  clearSelection();
+}
+
+function bulkDelete() {
+  const count = selectedIds.size;
+  if (!confirm(`Delete ${count} clip${count !== 1 ? "s" : ""}? This cannot be undone.`)) return;
+  chrome.storage.local.get(["clips"], (result) => {
+    const clips = (result.clips || []).filter((c) => !selectedIds.has(c.id));
+    chrome.storage.local.set({ clips }, () => {
+      clearSelection();
+      loadData();
+      showToast(`Deleted ${count} clip${count !== 1 ? "s" : ""}`);
+    });
   });
 }
 
@@ -449,9 +747,6 @@ function openModal(clip) {
     closeModal();
   });
 
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) closeModal();
-  });
 }
 
 function closeModal() {
@@ -460,6 +755,10 @@ function closeModal() {
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeModal();
+});
+
+document.getElementById("modal-overlay").addEventListener("click", (e) => {
+  if (e.target === e.currentTarget) closeModal();
 });
 
 // ── Modal row builders ────────────────────────────────────────────────────────

@@ -131,4 +131,16 @@ chrome.storage.local.get(["capturing"], (result) => {
   }
 });
 
+// Reset UI when capture stops externally (e.g. after saving a clip)
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.capturing && !changes.capturing.newValue) {
+    isCapturing = false;
+    captureBtn.classList.remove("active");
+    captureLabel.textContent = "Start Capturing";
+    statusDot.className = "status-dot idle";
+    statusText.textContent = "Ready to capture";
+    loadRecent();
+  }
+});
+
 loadRecent();

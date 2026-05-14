@@ -808,3 +808,316 @@ body {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+
+/* ── Sort button + Avatar ─────────────────────────────────────────────────────── */
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sort-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 11px;
+  background: #f5f5f5;
+  border: 1px solid #ebebeb;
+  border-radius: 8px;
+  color: #666;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, color 0.12s;
+  white-space: nowrap;
+}
+
+.sort-btn:hover {
+  background: #ebebeb;
+  color: #111;
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #e0e0e0;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.avatar:hover {
+  background: #d0d0d0;
+}
+
+/* ── Selection bar ───────────────────────────────────────────────────────────── */
+
+.selection-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 24px;
+  border-bottom: 1px solid #ebebeb;
+  background: #fafafa;
+  flex-shrink: 0;
+  min-height: 38px;
+}
+
+.sel-count {
+  font-size: 12px;
+  color: #aaa;
+  font-weight: 500;
+}
+
+.sel-count.has-selection {
+  color: #1a73e8;
+}
+
+.sel-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.sel-btn {
+  padding: 5px 12px;
+  background: #f5f5f5;
+  border: 1px solid #e8e8e8;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #555;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, color 0.12s;
+}
+
+.sel-btn:hover {
+  background: #ebebeb;
+  color: #111;
+}
+
+.sel-btn.danger {
+  color: #d04040;
+  border-color: #f0c0c0;
+}
+
+.sel-btn.danger:hover {
+  background: #fff0f0;
+}
+
+.sel-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* ── Card checkbox + star overlays ───────────────────────────────────────────── */
+
+.card-check {
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1.5px solid #ccc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 1;
+  transition: background 0.15s, border-color 0.15s;
+  z-index: 2;
+  flex-shrink: 0;
+}
+
+.card.selected .card-check {
+  background: #1a73e8;
+  border-color: #1a73e8;
+}
+
+.card.selected .card-check::after {
+  content: "";
+  width: 4px;
+  height: 8px;
+  border: 1.5px solid #fff;
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg) translateY(-1px);
+  display: block;
+}
+
+.card.selected {
+  border-color: #a8c7fa;
+  border-style: dashed;
+  box-shadow: 0 0 0 1px rgba(26, 115, 232, 0.2);
+}
+
+/* ── Card title row with star ─────────────────────────────────────────────────── */
+
+.card-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.card-star {
+  background: none;
+  border: none;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  color: #e0e0e0;
+  flex-shrink: 0;
+  transition: color 0.15s, transform 0.1s;
+}
+
+.card:hover .card-star {
+  color: #ccc;
+}
+
+.card-star.active {
+  color: #ffb300;
+}
+
+.card-star:hover {
+  transform: scale(1.15);
+  color: #ffb300;
+}
+
+/* ── Tag dot inside tag badge ─────────────────────────────────────────────────── */
+
+.tag-element {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tag-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+/* ── Sidebar TAGS section ────────────────────────────────────────────────────── */
+
+.sidebar-tag-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #666;
+  font-size: 12px;
+  transition: background 0.12s, color 0.12s;
+  user-select: none;
+}
+
+.sidebar-tag-item:hover {
+  background: #f5f5f5;
+  color: #111;
+}
+
+.sidebar-tag-item.active {
+  background: #e8f0fe;
+  color: #1a73e8;
+  font-weight: 500;
+}
+
+.sidebar-tag-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.sidebar-tag-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-tag-count {
+  font-size: 11px;
+  color: #ccc;
+  flex-shrink: 0;
+}
+
+.sidebar-tag-item.active .sidebar-tag-count {
+  color: #7aabf0;
+}
+
+.view-more-tags {
+  font-size: 11px;
+  color: #bbb;
+  padding: 4px 10px;
+  cursor: pointer;
+  display: block;
+  transition: color 0.12s;
+  background: none;
+  border: none;
+  font-family: inherit;
+  text-align: left;
+  width: 100%;
+}
+
+.view-more-tags:hover {
+  color: #1a73e8;
+}
+
+/* ── Move-to dialog ──────────────────────────────────────────────────────────── */
+
+.move-to-dialog {
+  position: fixed;
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 10px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.12);
+  z-index: 10000;
+  min-width: 180px;
+  overflow: hidden;
+  padding: 4px;
+}
+
+.move-to-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: #bbb;
+  padding: 8px 10px 4px;
+}
+
+.move-to-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #333;
+  transition: background 0.1s;
+}
+
+.move-to-option:hover {
+  background: #f5f5f5;
+}
+
+.move-to-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}

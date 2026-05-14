@@ -41,11 +41,24 @@
               </svg>
               <input class="search-input" id="search-input" placeholder="Search clips…" />
             </div>
+            <button class="sort-btn" id="sort-btn" title="Sort">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M3 6h18M7 12h10M11 18h2"/>
+              </svg>
+              Sort By <span id="sort-label">Newest</span>
+            </button>
+            <div class="avatar" id="avatar-btn"></div>
           </div>
         </div>
 
         <!-- Type filter pills -->
         <div class="type-filters" id="type-filters"></div>
+
+        <!-- Selection bar -->
+        <div class="selection-bar" id="selection-bar">
+          <span class="sel-count" id="sel-count">0 Clips Selected</span>
+          <div class="sel-actions" id="sel-actions"></div>
+        </div>
 
         <!-- Grid -->
         <div class="grid" id="grid"></div>
